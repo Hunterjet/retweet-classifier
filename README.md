@@ -1,8 +1,4 @@
-learning-git
+retweet-classifier
 ============
 
-A repository for testing git functionality.
-
-Test 1
-
-Test 2
+Downloads a large sample of tweets, and uses them to train classifiers which will try to predict the final amount of retweets a new tweet will have.
