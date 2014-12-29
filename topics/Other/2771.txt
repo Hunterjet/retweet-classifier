@@ -1,0 +1,1 @@
+@comex You said restoring from backup would restore MMS and FaceTime, but will it remain if you jailbreak again?

@@ -1,0 +1,1 @@
+@lazaraspaste Adobe Reader lets you mark up pdfs. Under Tools turn on Comment & Markup toolbar. Then use Text Edit & other tools to mark up.

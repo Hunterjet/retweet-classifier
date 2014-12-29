@@ -1,0 +1,1 @@
+@maiseyyates The prob (per WBH) was that yr pix were in CMYK (color separation) not RGB. Safari has issues with that. When I saved, =>RGB

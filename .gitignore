@@ -1,0 +1,19 @@
+*.ser
+*.class
+.*
+*.properties
+*.jar
+Code Backup
+*.abc
+MCLTestNotes.txt
+Test1.png
+CompleteSample*
+MonitorComplete*
+OneWeekSample*
+TestSample*
+backups/
+MonitorTest*
+Tweets.csv
+graph.txt
+graph2.txt
+retweeted.txt

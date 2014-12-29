@@ -1,0 +1,1 @@
+@nytimes ridiculous password policy: Password can only contain letters [a-z], numbers [0-9], periods [.], underscores [_], and hyphens [-]

@@ -1,0 +1,1 @@
+Testing out MiFi from MobiPCS. It's smaller than a cellphone and gives 5 wifi connections. Getting 1mbps at home - the same speed as my DSL.

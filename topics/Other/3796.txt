@@ -1,0 +1,1 @@
+Want to animate PNGs instead of GIFs? @pixelmatrix has got you covered: http://github.com/pixelmatrix/animatePNG (via @danrubin)

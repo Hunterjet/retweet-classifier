@@ -1,0 +1,1 @@
+Why are #joomla templates so ugly? Is there something about the underlying architecture that forces icky skinning?

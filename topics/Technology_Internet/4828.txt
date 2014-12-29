@@ -1,0 +1,1 @@
+@misterperturbed it could easly override modem code version + bootrom..So still to wait..I'm in iOS 4.0.1..iPhone 3Gs..All is done :-)

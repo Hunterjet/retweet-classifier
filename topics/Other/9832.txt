@@ -1,0 +1,1 @@
+Forcing browsers to use encryption: Chrome and Firefox are or will be using new HTTP Strict Transport Security t... http://bit.ly/9OHUXK

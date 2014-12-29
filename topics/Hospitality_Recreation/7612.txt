@@ -1,0 +1,1 @@
+Fun and useful tool for tracking random statistics, like the ratio of food to condiments currently in the fridge. http://daytum.com/
