@@ -7,8 +7,10 @@ import com.aliasi.classify.JointClassification;
 import com.aliasi.classify.JointClassifier;
 import com.aliasi.lm.NGramProcessLM;
 import com.aliasi.util.AbstractExternalizable;
+
 import java.io.File;
 import java.io.IOException;
+
 import com.aliasi.util.Files;
 
 public class TopicClassifier {
@@ -19,30 +21,30 @@ public class TopicClassifier {
 	private static int NGRAM_SIZE = 6;
 	private static JointClassifier<CharSequence> compiledClassifier;
 	
-	public TopicClassifier() {
-		try {
-			DynamicLMClassifier<NGramProcessLM> classifier = DynamicLMClassifier.createNGramProcess(CATEGORIES, NGRAM_SIZE);
-			for(int i = 0; i < CATEGORIES.length; ++i) {
-		        File classDir = new File(TRAINING_DIR, CATEGORIES[i]);
-		        String[] trainingFiles = classDir.list();
-		        for (int j = 0; j < trainingFiles.length; ++j) {
-		            File file = new File(classDir, trainingFiles[j]);
-		            String text = Files.readFromFile(file,"UTF-8");
-		            Classification classification = new Classification(CATEGORIES[i]);
-		            Classified<CharSequence> classified = new Classified<CharSequence>(text,classification);
-		            classifier.handle(classified);
-		        }
-			}	
-		    //compiling
-		    compiledClassifier = (JointClassifier<CharSequence>) AbstractExternalizable.compile(classifier);
-		} catch (Exception e) {
-			System.out.println("Failed at making the classifier");
-			e.printStackTrace();
-		}
+	public TopicClassifier() throws IOException, ClassNotFoundException {
+		compiledClassifier = (JointClassifier<CharSequence>)AbstractExternalizable.readObject(new File("TopicClassifier.txt"));
 	}
 	
 	public String classify(String text) {
 		JointClassification jc = compiledClassifier.classify(text);
 		return jc.bestCategory();
+	}
+	
+	public void trainClassifier() throws IOException, ClassNotFoundException {
+		DynamicLMClassifier<NGramProcessLM> classifier = DynamicLMClassifier.createNGramProcess(CATEGORIES, NGRAM_SIZE);
+		for(int i = 0; i < CATEGORIES.length; ++i) {
+	        File classDir = new File(TRAINING_DIR, CATEGORIES[i]);
+	        String[] trainingFiles = classDir.list();
+	        for (int j = 0; j < trainingFiles.length; ++j) {
+	            File file = new File(classDir, trainingFiles[j]);
+	            String text = Files.readFromFile(file, "UTF-8");
+	            Classification classification = new Classification(CATEGORIES[i]);
+	            Classified<CharSequence> classified = new Classified<CharSequence>(text, classification);
+	            classifier.handle(classified);
+	        }
+		}	
+	    //compiling
+		AbstractExternalizable.compileTo(classifier, new File("TopicClassifier.txt"));
+	    compiledClassifier = (JointClassifier<CharSequence>) AbstractExternalizable.compile(classifier);
 	}
 }

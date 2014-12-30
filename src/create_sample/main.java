@@ -90,8 +90,20 @@ public class main {
 		MonitoredStatus added;
 		Iterator<MonitoredStatus> iMonitor;
 		Iterator<Status> iSample;
-		SentimentAnalyzer sent = new SentimentAnalyzer();
-		TopicClassifier cla = new TopicClassifier();
+		SentimentClassifier sent = null;
+		TopicClassifier cla = null;
+		try {
+			sent = new SentimentClassifier();
+			cla = new TopicClassifier();
+		} catch (ClassNotFoundException e) {
+			System.out.println("Fatal: Topic or sentiment classifier files did not contain a valid classifier.");
+			e.printStackTrace();
+			System.exit(1);
+		} catch (IOException e) {
+			System.out.println("Fatal: Could not read topic or sentiment classifier file.");
+			e.printStackTrace();
+			System.exit(1);
+		}
 		long[] ids;
 		ResponseList<Status> resp;
 		
