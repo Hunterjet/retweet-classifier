@@ -1,4 +1,4 @@
-package twitter4j;
+package create_sample;
 
 import java.io.BufferedInputStream;
 import java.io.BufferedOutputStream;
@@ -31,6 +31,18 @@ import java.util.PriorityQueue;
 import java.util.Scanner;
 import java.util.Set;
 
+import twitter4j.IDs;
+import twitter4j.Paging;
+import twitter4j.Query;
+import twitter4j.QueryResult;
+import twitter4j.ResponseList;
+import twitter4j.Status;
+import twitter4j.Twitter;
+import twitter4j.TwitterException;
+import twitter4j.TwitterFactory;
+import twitter4j.TwitterStream;
+import twitter4j.TwitterStreamFactory;
+import twitter4j.User;
 import twitter4j.auth.OAuth2Token;
 import twitter4j.conf.ConfigurationBuilder;
 import edu.uci.ics.jung.graph.DirectedSparseGraph;

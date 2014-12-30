@@ -1,4 +1,4 @@
-package twitter4j;
+package create_sample;
 
 import java.io.BufferedWriter;
 import java.io.FileWriter;
@@ -7,6 +7,8 @@ import java.io.Serializable;
 import java.util.Date;
 import java.util.HashSet;
 import java.util.LinkedList;
+
+import twitter4j.User;
 
 public class MonitoredStatus implements Serializable {
 	private long id, lastRtFrom;

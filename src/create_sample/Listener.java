@@ -1,4 +1,4 @@
-package twitter4j;
+package create_sample;
 
 import java.io.BufferedOutputStream;
 import java.io.FileOutputStream;
@@ -8,6 +8,11 @@ import java.io.OutputStream;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.LinkedList;
+
+import twitter4j.StallWarning;
+import twitter4j.Status;
+import twitter4j.StatusDeletionNotice;
+import twitter4j.StatusListener;
 
 public class Listener implements StatusListener {
 	private int count, maxcount;

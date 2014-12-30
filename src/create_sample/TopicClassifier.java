@@ -1,4 +1,4 @@
-package twitter4j;
+package create_sample;
 
 import com.aliasi.classify.Classification;
 import com.aliasi.classify.Classified;

@@ -1,4 +1,4 @@
-package twitter4j;
+package create_sample;
 
 import java.io.File;
 import com.aliasi.classify.ConditionalClassification;

@@ -1,4 +1,4 @@
-package twitter4j;
+package create_sample;
 import java.io.*;
 import java.text.DateFormat;
 import java.util.*;

@@ -1,4 +1,4 @@
-package twitter4j;
+package create_sample;
 
 import java.io.*;
 import java.text.DateFormat;
@@ -32,17 +32,17 @@ public class LeeSer {
 	      try { 
 	    	  CsvWriter csvOutput = new CsvWriter(new FileWriter(outputFile, true), ',');                 
 	    	  csvOutput.write("Followers");
-	    	  csvOutput.write("Fecha de Inscripción");
+	    	  csvOutput.write("Fecha de Inscripci??n");
 	    	  csvOutput.write("# de Favoritos");
 	    	  csvOutput.write("Followings");
 	    	  csvOutput.write("# de Tweets");
 	    	  csvOutput.write("Nombre de Usuario");
-	    	  csvOutput.write("Ubicación");
+	    	  csvOutput.write("Ubicaci??n");
 	    	  csvOutput.write("# de Personas que fav el tweet");
 	    	  csvOutput.write("Latitud");
 	    	  csvOutput.write("Longitud");
 	    	  csvOutput.write("RT?");
-	    	  csvOutput.write("fecha creación tweet");
+	    	  csvOutput.write("fecha creaci??n tweet");
 	    	  csvOutput.write("Texto del Tweet");
 	    	  csvOutput.endRecord();
 	    	  for (int i=1;i<count;i++){
@@ -51,7 +51,7 @@ public class LeeSer {
 	            	 User usuario = obj.getUser();
 	                   //followers
 	            	 csvOutput.write(Integer.toString(usuario.getFollowersCount()));
-	                   //Cuando entró	                   
+	                   //Cuando entr??	                   
 	            	 csvOutput.write(df.format(usuario.getCreatedAt()));
 	                   // # de favoritos
 	            	 csvOutput.write(Integer.toString(usuario.getFavouritesCount()));
@@ -61,12 +61,12 @@ public class LeeSer {
 	            	 csvOutput.write(Integer.toString(usuario.getStatusesCount()));
 	                   //nombre de Usuario
 	            	 csvOutput.write(usuario.getScreenName());
-	                   //ubicación
+	                   //ubicaci??n
 	            	 csvOutput.write(usuario.getLocation());
 	                   //datos del tweet
 	            	   //Num de personas q marcaron el tweet como favorito
 	            	 csvOutput.write(Integer.toString(obj.getFavoriteCount()));
-	                   //ubicación en donde se escribió el tweet
+	                   //ubicaci??n en donde se escribi?? el tweet
 	            	 if(obj.getGeoLocation()!=null){
 	            	 csvOutput.write(Double.toString(obj.getGeoLocation().getLatitude()));
 	            	 csvOutput.write(Double.toString(obj.getGeoLocation().getLongitude()));	
