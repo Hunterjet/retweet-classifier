@@ -48,248 +48,102 @@ import twitter4j.conf.ConfigurationBuilder;
 import edu.uci.ics.jung.graph.DirectedSparseGraph;
 import edu.uci.ics.jung.graph.util.Pair;
 
-public class main {
+public class SampleCreator {
 
-    public static final int MAX_MONITORED = 1000; //18000 max
-    public static final int MAX_CYCLES = 40;
-    public static final int MIN_RETWEETS = 2; //minimum amount of retweets necessary to monitor a tweet
-    public static final String[] POSITIVE_TERMS = {"great", "like", "excellent", "awesome"};
-    public static final String[] NEGATIVE_TERMS = {"shit", "suck", "fail", "terrible"};
-    public static final String[] POSITIVE_EMOTICONS = {":-)", ":)", ";)", ";-)", ":D", ":-D"};
-    public static final String[] NEGATIVE_EMOTICONS = {":(", ":-(", "D:", "D-:", ";_;"};
-    public static int findFollowersRate, getRetweetsRate;
-    public static Twitter twitter, userAuth, appAuth;
-    public static PriorityQueue<Long> checkedRts = new PriorityQueue<Long>();
+    private static final int MAX_MONITORED = 1000; // 18000 max
+    private static final int MAX_CYCLES = 40;
+    private static final int MAX_LOOKUP_SIZE = 100; // Size of the Twitter API Status Lookup method response
+    private static final int MIN_RETWEETS = 2; // Minimum amount of retweets necessary to monitor a tweet
+    private static final long FIFTEEN_MINUTES = 900000;
+    private static final long ONE_SECOND = 1000;
+    private static final long TWO_SECONDS = 2000;
+    // Amount of 15 minute blocks without retweets before tweet is delcared dead
+    private static final int PERIODS_TO_DIE = 4; 
+    private static final String[] POSITIVE_EMOTICONS = {":-)", ":)", ";)", ";-)", ":D", ":-D"};
+    private static final String[] NEGATIVE_EMOTICONS = {":(", ":-(", "D:", "D-:", ";_;"};
+    private static final File SAVED_SENTIMENT_CLASSIFIER = new File("SentimentClassifier.txt");
+    private static final File SAVED_TOPIC_CLASSIFIER = new File("TopicClassifier.txt");
+    
+    private static int findFollowersRate = 0, getRetweetsRate = 0;
+    private static Twitter twitter, userAuth, appAuth;
+    private static PriorityQueue<Long> checkedRetweetedTweets = new PriorityQueue<Long>();
 
-    public static void main(String[] args) {
-        ///*
-        //setup
+    public static void main(String[] args) throws TwitterException, ClassNotFoundException, IOException, InterruptedException {
+        // Don't want the Twitter4J logger cluttering up the console
         System.setProperty("twitter4j.loggerFactory", "twitter4j.NullLoggerFactory");
-        findFollowersRate = 0;
-        getRetweetsRate = 0;
-        userAuth = TwitterFactory.getSingleton();
-        ConfigurationBuilder builder;
-        builder = new ConfigurationBuilder();
-        builder.setApplicationOnlyAuthEnabled(true);
-        appAuth = new TwitterFactory(builder.build()).getInstance();
+        
+        // Connect to Twitter
         try {
-            appAuth.getOAuth2Token();
-        } catch (TwitterException e1) {
-            System.out.println("A");
-            e1.printStackTrace();
+            twitter = connectionSetup();
+        } catch (TwitterException e) {
+            System.out.println("Fatal: Could not connect to Twitter.");
+            e.printStackTrace();
+            throw e;
         }
-        twitter = userAuth;
-        //fin setup
-
+        
         HashSet<MonitoredStatus> monitor = new HashSet<MonitoredStatus>(), dead = new HashSet<MonitoredStatus>();
-        LinkedList<Status> newSample = new LinkedList<Status>(), replace = new LinkedList<Status>();
-        List<User> retweeters;
-        boolean quit = false;
-        Status tweet, updated, tweet2;
-        int statCount, mlCount = 0, mlSubstract = 0, cycles = 0, j;
-        MonitoredStatus added;
-        Iterator<MonitoredStatus> iMonitor;
-        Iterator<Status> iSample;
-        SentimentClassifier sent = null;
-        TopicClassifier cla = null;
+        LinkedList<Status> newSample = new LinkedList<Status>();
+        boolean finished = false;
+        int cycles = 0;
+        
+        // Load the classifiers
+        SentimentClassifier sentimentClassifier = null;
+        TopicClassifier topicClassifier = null;
         try {
-            sent = new SentimentClassifier();
-            cla = new TopicClassifier();
+            sentimentClassifier = new SentimentClassifier(SAVED_SENTIMENT_CLASSIFIER);
+            topicClassifier = new TopicClassifier(SAVED_TOPIC_CLASSIFIER);
         } catch (ClassNotFoundException e) {
             System.out.println("Fatal: Topic or sentiment classifier files did not contain a valid classifier.");
             e.printStackTrace();
-            System.exit(1);
+            throw e;
         } catch (IOException e) {
             System.out.println("Fatal: Could not read topic or sentiment classifier file.");
             e.printStackTrace();
-            System.exit(1);
+            throw e;
         }
-        long[] ids;
-        ResponseList<Status> resp;
 
-        while (!quit) {
-            cycles++;
-            mlCount -= mlSubstract;
-            mlSubstract = 0;
-            getRetweetsRate = 0;
+        // Create the sample
+        while (!finished) {
+            // Update the tweets
+            updateMonitor(monitor, dead);
 
-            //Monitor the tweets
-            iMonitor = monitor.iterator();			
-            while (iMonitor.hasNext()) {
-                added = (MonitoredStatus)iMonitor.next();
-                try {
-                    updated = twitter.showStatus(added.getId());
-                    if (getRetweetsRate <= 15) {
-                        retweeters = getRetweeters(updated, updated.getRetweetCount() - added.getRetweetCount().peekLast(), userAuth, 
-                                false);
-                    } else if (getRetweetsRate <= 75) {
-                        retweeters = getRetweeters(updated, updated.getRetweetCount() - added.getRetweetCount().peekLast(), appAuth, 
-                                false);
-                    } else if (getRetweetsRate <= 90) {
-                        retweeters = getRetweeters(updated, updated.getRetweetCount() - added.getRetweetCount().peekLast(), userAuth, 
-                                true);
-                    } else {
-                        retweeters = getRetweeters(updated, updated.getRetweetCount() - added.getRetweetCount().peekLast(), appAuth, 
-                                true);
-                    }
-                    getRetweetsRate++;
-                    for (User u : retweeters)
-                        added.getRetweeters().add(u);
-                    added.addObservation(updated.getRetweetCount(), getRetweetLikelihood(updated, retweeters));
-                    if (added.getInactivePeriods() == 4) { //inactive for an hour
-                        dead.add(added);
-                        iMonitor.remove();
-                        mlSubstract++;
-                    }
-                } catch (TwitterException e) { //tweet deleted
-                    System.out.println("G");
-                    iMonitor.remove();
-                    e.printStackTrace();
-                    mlCount--;
-                }
-            }
-
-            //Add previous sample
-            iSample = newSample.iterator();
-            replace = new LinkedList<Status>();
-            while (iSample.hasNext()) {
-                tweet = iSample.next();
-                if (tweet.isRetweet()) {
-                    /*tweet2 = tweet.getRetweetedStatus();
-					if (!checkedRts.contains(tweet2.getId())) {
-						checkedRts.add(tweet2.getId());
-						replace.add(tweet2);
-					}*/
-                    iSample.remove();
-                    //} else {
-                    //checkedRts.add(tweet.getId());
-                }
-            }
-            /*for (Status status: replace) {
-				newSample.add(status);
-			}*/
-            ids = new long[newSample.size()];
-            j = 0;
-            for (Status status: newSample) {
-                ids[j] = status.getId();
-                j++;
-            }
-            j = 0;
-            while ((j + 1) * 100 < ids.length) {
-                try {
-                    resp = twitter.lookup(Arrays.copyOfRange(ids, j * 100, (j + 1) * 100));
-                    for (Status status: resp) {
-                        if (status.getLang().equals("en") && status.getRetweetCount() >= MIN_RETWEETS && mlCount < 150) {
-                            added = new MonitoredStatus(status.getId(), status.getText(), status.getCreatedAt(),
-                                    (status.getUserMentionEntities().length > 0) && status.getText().startsWith("@"), 
-                                    status.getUserMentionEntities().length > 0, status.getHashtagEntities().length > 0, 
-                                    status.getText().contains("http://") || status.getText().contains("https://"), status.getText().contains("!"), 
-                                    status.getText().contains("?"), containsArray(status.getText(), POSITIVE_EMOTICONS), 
-                                    containsArray(status.getText(), NEGATIVE_EMOTICONS), status.getUser().getFollowersCount(), 
-                                    sent.classify(status.getText()), cla.classify(status.getText()));
-                            mlCount++;
-                            if (status.getRetweetCount() > 0) {
-                                if (getRetweetsRate <= 15) {
-                                    retweeters = getRetweeters(status, status.getRetweetCount(), userAuth, false);
-                                } else if (getRetweetsRate <= 75) {
-                                    retweeters = getRetweeters(status, status.getRetweetCount(), appAuth, false);
-                                } else if (getRetweetsRate <= 90) {
-                                    retweeters = getRetweeters(status, status.getRetweetCount(), userAuth, true);
-                                } else {
-                                    retweeters = getRetweeters(status, status.getRetweetCount(), appAuth, true);
-                                }
-                                getRetweetsRate++;
-                                for (User u : retweeters)
-                                    added.getRetweeters().add(u);
-                                added.addObservation(status.getRetweetCount(), getRetweetLikelihood(status, retweeters));
-                            } else {
-                                added.addObservation(0, 0);
-                            }
-                            monitor.add(added);
-                        }
-                    }
-                } catch (TwitterException e) {
-                    System.out.println("D");
-                    //e.printStackTrace();
-                }
-                j++;
-            }
-
+            // Add previous sample
             try {
-                resp = twitter.lookup(Arrays.copyOfRange(ids, j * 100, ids.length));
-                for (Status status: resp) {
-                    if (status.getLang().equals("en") && status.getRetweetCount() >= MIN_RETWEETS && mlCount < 150) {
-                        added = new MonitoredStatus(status.getId(), status.getText(), status.getCreatedAt(), 
-                                (status.getUserMentionEntities().length > 0) && status.getText().startsWith("@"), 
-                                status.getUserMentionEntities().length > 0, status.getHashtagEntities().length > 0, 
-                                status.getText().contains("http://") || status.getText().contains("https://"), status.getText().contains("!"), 
-                                status.getText().contains("?"), containsArray(status.getText(), POSITIVE_EMOTICONS), 
-                                containsArray(status.getText(), NEGATIVE_EMOTICONS), status.getUser().getFollowersCount(), 
-                                sent.classify(status.getText()), cla.classify(status.getText()));
-                        mlCount++;
-                        if (status.getRetweetCount() > 0) {
-                            if (getRetweetsRate <= 15) {
-                                retweeters = getRetweeters(status, status.getRetweetCount(), userAuth, false);
-                            } else if (getRetweetsRate <= 75) {
-                                retweeters = getRetweeters(status, status.getRetweetCount(), appAuth, false);
-                            } else if (getRetweetsRate <= 90) {
-                                retweeters = getRetweeters(status, status.getRetweetCount(), userAuth, true);
-                            } else {
-                                retweeters = getRetweeters(status, status.getRetweetCount(), appAuth, true);
-                            }
-                            getRetweetsRate++;
-                            for (User u : retweeters)
-                                added.getRetweeters().add(u);
-                            added.addObservation(status.getRetweetCount(), getRetweetLikelihood(status, retweeters));
-                        } else {
-                            added.addObservation(0, 0);
-                        }
-                        monitor.add(added);
-                    }
-                }
+                addSampleToMonitor(monitor, newSample, sentimentClassifier, topicClassifier);
             } catch (TwitterException e) {
-                System.out.println("D");
-                //e.printStackTrace();
+                System.out.println("Fatal: Status Lookup failed.");
+                e.printStackTrace();
+                throw e;
             }
 
-            statCount = 0;
-            for (MonitoredStatus status: monitor) {
-                System.out.println(statCount);
-                status.print();
-                System.out.println();
-                statCount++;
-            }
-            System.out.println("===============DEAD===============");
-            for (MonitoredStatus status: dead) {
-                System.out.println(statCount);
-                status.print();
-                System.out.println();
-                statCount++;
+            printMonitors(monitor, dead);
+
+            // Get new sample
+            newSample = streamTweets(MAX_MONITORED);
+
+            saveSets(monitor, dead);
+
+            // End after a number of cycles
+            if (cycles == MAX_CYCLES) {
+                finished = true;
             }
 
-            //Get new sample
-            newSample = streamSumTweets(MAX_MONITORED);
-
-            save(monitor, dead);
-
-            //End after a number of cycles
-            if (cycles == MAX_CYCLES + 1) {
-                quit = true;
-            }
-
-            //Refresh rate limit window
-            if (!quit) {
+            // Refresh rate limit window
+            if (!finished) {
                 try {
-                    Thread.sleep(900000); // 15 min
+                    Thread.sleep(FIFTEEN_MINUTES);
+                    getRetweetsRate = 0;
                 } catch (InterruptedException e) {
-                    System.out.println("C");
+                    System.out.println("Fatal: Rate limit refresh sleep interrupted");
                     e.printStackTrace();
+                    throw e;
                 }
             }
+            
+            cycles++;
         }
-        //*/
 
-        //Experimenting
+        // Experimenting
         /*
 		int i = 0;
 		LinkedList<MonitoredStatus> s = new LinkedList<MonitoredStatus>(), d = new LinkedList<MonitoredStatus>(), s2, d2;
@@ -343,7 +197,181 @@ public class main {
 	    /**/
         System.out.println("Finished.");
     }
+    
+    public static Twitter connectionSetup() throws TwitterException {
+        userAuth = TwitterFactory.getSingleton();
+        ConfigurationBuilder builder;
+        builder = new ConfigurationBuilder();
+        builder.setApplicationOnlyAuthEnabled(true);
+        appAuth = new TwitterFactory(builder.build()).getInstance();
+        appAuth.getOAuth2Token();
+        return userAuth;
+    }
+    
+    public static void updateMonitor(HashSet<MonitoredStatus> monitor, HashSet<MonitoredStatus> dead) {
+        MonitoredStatus tweet;
+        Status updated;
+        Iterator<MonitoredStatus> iMonitor;
+        List<User> retweeters;
+        
+        iMonitor = monitor.iterator();
+        while (iMonitor.hasNext()) {
+            tweet = (MonitoredStatus)iMonitor.next();
+            try {
+                updated = twitter.showStatus(tweet.getId());
+                retweeters = getRetweeters(updated, updated.getRetweetCount() - tweet.getRetweetCount().peekLast());
+                for (User u : retweeters)
+                    tweet.getRetweeters().add(u);
+                tweet.addObservation(updated.getRetweetCount(), getRetweetLikelihood(updated, retweeters));
+                if (tweet.getInactivePeriods() == PERIODS_TO_DIE) { // Inactive for an hour
+                    dead.add(tweet);
+                    iMonitor.remove();
+                }
+            } catch (TwitterException e) { // Tweet deleted
+                iMonitor.remove();
+            }
+        }
+    }
+    
+    public static void addSampleToMonitor(HashSet<MonitoredStatus> monitor, LinkedList<Status> newSample, 
+            SentimentClassifier sentimentClassifier, TopicClassifier topicClassifier) throws TwitterException {
+        long[] ids;
+        int i, lookupUpperLimit;
+        MonitoredStatus addedTweet;
+        ResponseList<Status> updatedSample;
+        List<User> retweeters;
+        
+        ids = new long[newSample.size()];
+        i = 0;
+        for (Status status: newSample) {
+            if (!status.isRetweet()) { // Skip retweets
+                ids[i] = status.getId();
+                i++;
+            }
+        }
+        ids = Arrays.copyOfRange(ids, 0, i); // Shortens ids to account for skipped retweets
+        
+        i = 0;
+        while (i * MAX_LOOKUP_SIZE < ids.length) {
+            if ((i + 1) * MAX_LOOKUP_SIZE > ids.length) {
+                lookupUpperLimit = ids.length;
+            } else {
+                lookupUpperLimit = (i + 1) * MAX_LOOKUP_SIZE;
+            }
+            updatedSample = twitter.lookup(Arrays.copyOfRange(ids, i * MAX_LOOKUP_SIZE, lookupUpperLimit));
+            for (Status status: updatedSample) {
+                if (status.getLang().equals("en") && status.getRetweetCount() >= MIN_RETWEETS && monitor.size() < 150) {
+                    addedTweet = new MonitoredStatus(status.getId(), status.getText(), status.getCreatedAt(),
+                            (status.getUserMentionEntities().length > 0) && status.getText().startsWith("@"), 
+                            status.getUserMentionEntities().length > 0, status.getHashtagEntities().length > 0, 
+                            status.getText().contains("http://") || status.getText().contains("https://"), status.getText().contains("!"), 
+                            status.getText().contains("?"), containsArray(status.getText(), POSITIVE_EMOTICONS), 
+                            containsArray(status.getText(), NEGATIVE_EMOTICONS), status.getUser().getFollowersCount(), 
+                            sentimentClassifier.classify(status.getText()), topicClassifier.classify(status.getText()));
+                    if (status.getRetweetCount() > 0) {
+                        retweeters = getRetweeters(status, status.getRetweetCount());
+                        for (User u : retweeters)
+                            addedTweet.getRetweeters().add(u);
+                        addedTweet.addObservation(status.getRetweetCount(), getRetweetLikelihood(status, retweeters));
+                    } else {
+                        addedTweet.addObservation(0, 0);
+                    }
+                    monitor.add(addedTweet);
+                }
+            }
+            i++;
+        }
+    }
+    
+    public static void addSampleToMonitorWithRetweets(HashSet<MonitoredStatus> monitor, LinkedList<Status> newSample, 
+            SentimentClassifier sentimentClassifier, TopicClassifier topicClassifier) throws TwitterException {
+        long[] ids;
+        int i, lookupUpperLimit;
+        MonitoredStatus addedTweet;
+        ResponseList<Status> updatedSample;
+        List<User> retweeters;
+        Iterator<Status> iSample;
+        LinkedList<Status> replace;
+        Status tweet, originalTweet;
+        
+        iSample = newSample.iterator();
+        replace = new LinkedList<Status>();
+        while (iSample.hasNext()) {
+            tweet = iSample.next();
+            if (tweet.isRetweet()) {
+                originalTweet = tweet.getRetweetedStatus();
+                if (!checkedRetweetedTweets.contains(originalTweet.getId())) {
+                    checkedRetweetedTweets.add(originalTweet.getId());
+                    replace.add(originalTweet);
+                }
+                iSample.remove();
+                } else {
+                    checkedRetweetedTweets.add(tweet.getId());
+            }
+        }
+        for (Status status: replace) {
+            newSample.add(status);
+        }
+        
+        ids = new long[newSample.size()];
+        i = 0;
+        for (Status status: newSample) {
+            ids[i] = status.getId();
+            i++;
+        }
+        
+        i = 0;
+        while (i * MAX_LOOKUP_SIZE < ids.length) {
+            if ((i + 1) * MAX_LOOKUP_SIZE > ids.length) {
+                lookupUpperLimit = ids.length;
+            } else {
+                lookupUpperLimit = (i + 1) * MAX_LOOKUP_SIZE;
+            }
+            updatedSample = twitter.lookup(Arrays.copyOfRange(ids, i * MAX_LOOKUP_SIZE, lookupUpperLimit));
+            for (Status status: updatedSample) {
+                if (status.getLang().equals("en") && status.getRetweetCount() >= MIN_RETWEETS && monitor.size() < 150) {
+                    addedTweet = new MonitoredStatus(status.getId(), status.getText(), status.getCreatedAt(),
+                            (status.getUserMentionEntities().length > 0) && status.getText().startsWith("@"), 
+                            status.getUserMentionEntities().length > 0, status.getHashtagEntities().length > 0, 
+                            status.getText().contains("http://") || status.getText().contains("https://"), status.getText().contains("!"), 
+                            status.getText().contains("?"), containsArray(status.getText(), POSITIVE_EMOTICONS), 
+                            containsArray(status.getText(), NEGATIVE_EMOTICONS), status.getUser().getFollowersCount(), 
+                            sentimentClassifier.classify(status.getText()), topicClassifier.classify(status.getText()));
+                    if (status.getRetweetCount() > 0) {
+                        retweeters = getRetweeters(status, status.getRetweetCount());
+                        for (User u : retweeters)
+                            addedTweet.getRetweeters().add(u);
+                        addedTweet.addObservation(status.getRetweetCount(), getRetweetLikelihood(status, retweeters));
+                    } else {
+                        addedTweet.addObservation(0, 0);
+                    }
+                    monitor.add(addedTweet);
+                }
+            }
+            i++;
+        }
+    }
+    
+    public static final void printMonitors(HashSet<MonitoredStatus> monitor, HashSet<MonitoredStatus> dead) {
+        int tweetNumber = 0;
+        for (MonitoredStatus status: monitor) {
+            System.out.println(tweetNumber);
+            status.print();
+            System.out.println();
+            tweetNumber++;
+        }
+        System.out.println("===============DEAD===============");
+        for (MonitoredStatus status: dead) {
+            System.out.println(tweetNumber);
+            status.print();
+            System.out.println();
+            tweetNumber++;
+        }
+    }
+    
+    public static void readMonitors() {
 
+    }
 
     /* Prints sample.
      * Row 0: 0:RetweetCount, 1:Clusters, 2:TreeLength, 3:AuthorsFollowers, 4:isDirect, 5:isMention, 6:isExclamation, 7:isHashtag, 8:isNegativeE, 9:isPositiveE,
@@ -542,7 +570,7 @@ public class main {
                 printGraphForMCL(g, "MCL\\" + i + ".abc");
                 i++;
                 it.remove();
-                save2(s, d, "ClusterProgress.ser");
+                saveLists(s, d, "ClusterProgress.ser");
             }
             System.out.println("===============DEAD===============");
             it = d.iterator();
@@ -559,7 +587,7 @@ public class main {
                 printGraphForMCL(g, "MCLD\\" + i + ".abc");
                 i++;
                 it.remove();
-                save2(s, d, "ClusterProgress.ser");
+                saveLists(s, d, "ClusterProgress.ser");
             }
         } catch (Exception e) {
             e.printStackTrace();
@@ -630,7 +658,7 @@ public class main {
             } finally {
                 i++;
                 it.remove();
-                save2(s, d, "ClusterProgress.ser");
+                saveLists(s, d, "ClusterProgress.ser");
             }
 
         }
@@ -654,7 +682,7 @@ public class main {
             } finally {
                 i++;
                 it.remove();
-                save2(s, d, "ClusterProgress.ser");
+                saveLists(s, d, "ClusterProgress.ser");
             }
         }
     }
@@ -675,7 +703,7 @@ public class main {
                     m.setTreeDepth(1);
                 }
                 i++;
-                save2(s, d, "DiffusionProgress.ser");
+                saveLists(s, d, "DiffusionProgress.ser");
             }
             System.out.println("===============DEAD===============");
             it = d.iterator();
@@ -689,7 +717,7 @@ public class main {
                     m.setTreeDepth(1);
                 }
                 i++;
-                save2(s, d, "DiffusionProgress.ser");
+                saveLists(s, d, "DiffusionProgress.ser");
             }
         } catch (Exception e) {
             e.printStackTrace();
@@ -704,7 +732,7 @@ public class main {
         return false;
     }
 
-    public static void save(HashSet<MonitoredStatus> s, HashSet<MonitoredStatus> d) {
+    public static void saveSets(HashSet<MonitoredStatus> s, HashSet<MonitoredStatus> d) {
         try {
             System.out.println("SAVING THE GAME... PLEASE DON'T TURN OFF THE POWER");
             int i = 0;
@@ -734,7 +762,7 @@ public class main {
 
     }
 
-    public static void save2(LinkedList<MonitoredStatus> s, LinkedList<MonitoredStatus> d, String file) {
+    public static void saveLists(LinkedList<MonitoredStatus> s, LinkedList<MonitoredStatus> d, String file) {
         try {
             System.out.println("SAVING THE GAME... PLEASE DON'T TURN OFF THE POWER");
             int i = 0;
@@ -754,7 +782,7 @@ public class main {
 
     }
 
-    public static LinkedList<Status> streamSumTweets(int count) {
+    public static LinkedList<Status> streamTweets(int count) {
         TwitterStream stream;
         Listener listener;
         listener = new Listener(count);
@@ -763,7 +791,7 @@ public class main {
         stream.sample();
         while (!listener.limitHit()) {
             try {
-                Thread.sleep(1000); // 1 second
+                Thread.sleep(ONE_SECOND);
             } catch (InterruptedException e) {
                 System.out.println("E");
                 e.printStackTrace();
@@ -772,7 +800,7 @@ public class main {
         stream.cleanUp();
         stream.shutdown();
         try {
-            Thread.sleep(2000);
+            Thread.sleep(TWO_SECONDS);
         } catch (InterruptedException e) {
             System.out.println("F");
             e.printStackTrace();
@@ -883,12 +911,28 @@ public class main {
 		return null;
 	}*/
 
-    public static List<User> getRetweeters(Status status, int rtCount, Twitter auth, boolean limit) {
+    public static List<User> getRetweeters(Status status, int rtCount) {
+        Twitter auth;
+        boolean limit;
+        if (getRetweetsRate <= 15) {
+            auth = userAuth;
+            limit = false;
+        } else if (getRetweetsRate <= 75) {
+            auth = appAuth;
+            limit = false;
+        } else if (getRetweetsRate <= 90) {
+            auth = userAuth;
+            limit = true;
+        } else {
+            auth = appAuth;
+            limit = true;
+        }
         if (rtCount < 0)
             rtCount = 0;
         if (!limit) {
             try {
                 List<Status> statuses = auth.getRetweets(status.getId());
+                getRetweetsRate++;
                 LinkedList<User> ids = new LinkedList<User>();
                 Status tweet;
                 if (statuses.size() < rtCount)
@@ -906,6 +950,7 @@ public class main {
         } else {
             try {
                 long[] statuses = auth.getRetweeterIds(status.getId(), -1l).getIDs();
+                getRetweetsRate++;
                 ResponseList<User> r = userAuth.lookupUsers(statuses);
                 if (r.size() < rtCount)
                     rtCount = r.size();

@@ -49,16 +49,15 @@ public class TopicClassifier {
     private static JointClassifier<CharSequence> compiledClassifier;
 
     /**
-     * Constructor. Reads the classifier from a text file, which is a precompiled
-     * classifier using the training sample referenced in {@link #trainClassifier() trainClassifier}.
+     * Constructor. Reads the classifier from a text file.
      * 
      * @throws IOException
      * @throws ClassNotFoundException
      * @see #trainClassifier() trainClassifier
      */
     @SuppressWarnings("unchecked") // The file contains a JointClassifier
-    public TopicClassifier() throws IOException, ClassNotFoundException {
-        compiledClassifier = (JointClassifier<CharSequence>)AbstractExternalizable.readObject(new File("TopicClassifier.txt"));
+    public TopicClassifier(File savedClassifier) throws IOException, ClassNotFoundException {
+        compiledClassifier = (JointClassifier<CharSequence>)AbstractExternalizable.readObject(savedClassifier);
     }
 
     /**

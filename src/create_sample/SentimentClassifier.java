@@ -17,20 +17,17 @@ import com.aliasi.util.AbstractExternalizable;
 public class SentimentClassifier {
     @SuppressWarnings("rawtypes") // We won't reference the type arguments of LMClassifier
     private LMClassifier classifier;
-    private static final File SAVED_CLASSIFIER = new File("SentimentClassifier.txt");
 
     /**
-     * Constructor. Reads the language model classifier from a text file,
-     * taken from 
-     * {@link <a href=http://cavajohn.blogspot.mx/2013/05/how-to-sentiment-analysis-of-tweets.html>
-     * Giorgio Cavaggion's blog</a>} on data analysis.
+     * Constructor. Reads the language model classifier from a text file.
      * 
+     * @param savedClassifier The text file where the classifier is saved.
      * @throws IOException
      * @throws ClassNotFoundException
      */
     @SuppressWarnings("rawtypes") // The file contains an LMClassifier
-    public SentimentClassifier() throws IOException, ClassNotFoundException {
-        classifier = (LMClassifier)AbstractExternalizable.readObject(SAVED_CLASSIFIER);
+    public SentimentClassifier(File savedClassifier) throws IOException, ClassNotFoundException {
+        classifier = (LMClassifier)AbstractExternalizable.readObject(savedClassifier);
     }
 
     /**

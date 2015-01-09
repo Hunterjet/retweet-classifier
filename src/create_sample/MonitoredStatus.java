@@ -26,8 +26,8 @@ public class MonitoredStatus implements Serializable {
     private LinkedList<Integer> retweetCount;
     private HashSet<User> retweeters;
     private LinkedList<Double> retweetLikelihood;
-    private LinkedList<Double> combined; // retweet likelihood * retweetCount;
-    private int treeDepth; // depth of the diffusion tree
+    private LinkedList<Double> combined; // Retweet likelihood * retweetCount;
+    private int treeDepth; // Depth of the diffusion tree
     private int inactivePeriods, authorFollowerNumber;
     private boolean isDirect, hasMention, hasHashtag, hasURL, isExclamation, isQuestion, hasPositiveEmoticon, 
     hasNegativeEmoticon;
