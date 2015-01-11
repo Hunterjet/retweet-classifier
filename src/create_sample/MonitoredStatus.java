@@ -1,6 +1,7 @@
 package create_sample;
 
 import java.io.BufferedWriter;
+import java.io.File;
 import java.io.FileWriter;
 import java.io.PrintWriter;
 import java.io.Serializable;
@@ -466,7 +467,7 @@ public class MonitoredStatus implements Serializable {
      * 
      * @param file The file to print to.
      */
-    public void printToFile(String file) {
+    public void printToFile(File file) {
         try { 
             PrintWriter writer = new PrintWriter(new BufferedWriter(new FileWriter(file, true)));
             writer.println("ID = " + id);

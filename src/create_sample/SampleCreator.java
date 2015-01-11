@@ -8,17 +8,13 @@ import java.io.File;
 import java.io.FileInputStream;
 import java.io.FileNotFoundException;
 import java.io.FileOutputStream;
-import java.io.FileReader;
 import java.io.FileWriter;
 import java.io.IOException;
-import java.io.InputStream;
 import java.io.InputStreamReader;
-import java.io.ObjectInput;
 import java.io.ObjectInputStream;
-import java.io.ObjectOutput;
 import java.io.ObjectOutputStream;
-import java.io.OutputStream;
 import java.io.PrintWriter;
+import java.io.Serializable;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collection;
@@ -28,7 +24,6 @@ import java.util.Iterator;
 import java.util.LinkedList;
 import java.util.List;
 import java.util.PriorityQueue;
-import java.util.Scanner;
 import java.util.Set;
 
 import twitter4j.IDs;
@@ -43,14 +38,13 @@ import twitter4j.TwitterFactory;
 import twitter4j.TwitterStream;
 import twitter4j.TwitterStreamFactory;
 import twitter4j.User;
-import twitter4j.auth.OAuth2Token;
 import twitter4j.conf.ConfigurationBuilder;
 import edu.uci.ics.jung.graph.DirectedSparseGraph;
 import edu.uci.ics.jung.graph.util.Pair;
 
 public class SampleCreator {
 
-    private static final int MAX_MONITORED = 1000; // 18000 max
+    private static final int MAX_MONITORED = 18000; // 18000 max
     private static final int MAX_CYCLES = 40;
     private static final int MAX_LOOKUP_SIZE = 100; // Size of the Twitter API Status Lookup method response
     private static final int MIN_RETWEETS = 2; // Minimum amount of retweets necessary to monitor a tweet
@@ -63,6 +57,18 @@ public class SampleCreator {
     private static final String[] NEGATIVE_EMOTICONS = {":(", ":-(", "D:", "D-:", ";_;"};
     private static final File SAVED_SENTIMENT_CLASSIFIER = new File("SentimentClassifier.txt");
     private static final File SAVED_TOPIC_CLASSIFIER = new File("TopicClassifier.txt");
+    private static final File MONITOR_PROGRESS = new File("MonitorProgress.ser");
+    private static final File DEAD_MONITOR_PROGRESS = new File("DeadMonitorProgress.ser");
+    private static final File PRINTED_MONITOR_PROGRESS = new File("MonitorProgress.txt");
+    private static final File PRINTED_DEAD_MONITOR_PROGRESS = new File("DeadMonitorProgress.txt");
+    private static final File MONITOR_FINAL = new File("MonitorFinal.ser");
+    private static final File DEAD_MONITOR_FINAL = new File("DeadMonitorFinal.ser");
+    private static final File PRINTED_MONITOR_FINAL = new File("MonitorFinal.txt");
+    private static final File PRINTED_DEAD_MONITOR_FINAL = new File("DeadMonitorFinal.txt");
+    private static final File CLUSTERING_PROGRESS = new File("ClusterProgress.ser");
+    private static final File CLUSTERING_PROGRESS_NUMBER = new File("ClusterProgress.txt");
+    private static final File DIFFUSION_PROGRESS = new File("DiffusionProgress.ser");
+    private static final File DIFFUSION_PROGRESS_NUMBER = new File("DiffusionProgress.txt");
     
     private static int findFollowersRate = 0, getRetweetsRate = 0;
     private static Twitter twitter, userAuth, appAuth;
@@ -121,7 +127,7 @@ public class SampleCreator {
             // Get new sample
             newSample = streamTweets(MAX_MONITORED);
 
-            saveSets(monitor, dead);
+            saveMonitorProgress(monitor, dead);
 
             // End after a number of cycles
             if (cycles == MAX_CYCLES) {
@@ -143,28 +149,12 @@ public class SampleCreator {
             cycles++;
         }
 
-        // Experimenting
+        // Save monitors
+        LinkedList<MonitoredStatus> orderedMonitor = turnSetIntoLinkedList(monitor);
+        LinkedList<MonitoredStatus> orderedDead = turnSetIntoLinkedList(dead);
+        saveFinalMonitors(orderedMonitor, orderedDead);
+        
         /*
-		int i = 0;
-		LinkedList<MonitoredStatus> s = new LinkedList<MonitoredStatus>(), d = new LinkedList<MonitoredStatus>(), s2, d2;
-		ObjectInputStream input;
-	    try {
-	    	input = new ObjectInputStream(new BufferedInputStream(new FileInputStream("Sample 2/Sabado/MonitorTest.ser")));
-	    	monitor = (HashSet<MonitoredStatus>)input.readObject();
-	    	dead = (HashSet<MonitoredStatus>)input.readObject();
-	    	System.out.println(monitor.size());
-	    	System.out.println(dead.size());
-	    	input.close();
-	    	for (MonitoredStatus m : monitor) {
-	    		s.add(m);
-	    	}
-	    	for (MonitoredStatus m : dead) {
-	    		d.add(m);
-	    	}
-	    } catch (Exception e) {
-	    	e.printStackTrace();
-	    }
-
 	    s2 = (LinkedList<MonitoredStatus>)s.clone();
     	d2 = (LinkedList<MonitoredStatus>)d.clone();
 
@@ -369,8 +359,12 @@ public class SampleCreator {
         }
     }
     
-    public static void readMonitors() {
-
+    public static HashSet<MonitoredStatus> readMonitorProgressFile(File file) throws ClassNotFoundException, IOException {
+        ObjectInputStream input = new ObjectInputStream(new BufferedInputStream(new FileInputStream(file)));
+        @SuppressWarnings("unchecked") // The file should contain a HashSet<MonitoredStatus>.
+        HashSet<MonitoredStatus> monitor = (HashSet<MonitoredStatus>)input.readObject();
+        input.close();
+        return monitor;
     }
 
     /* Prints sample.
@@ -454,26 +448,6 @@ public class SampleCreator {
         }
     }
 
-    //Returns an array with the maximum, average and total of the followers of the user set r.
-    //0: Total
-    //1: Average
-    //2: Max
-    public static double[] followerStats2(HashSet<User> r, LinkedList<Integer> retweets, LinkedList<Double> likelihood, int authorFollowers) {
-        LinkedList<double[]> result = new LinkedList<double[]>();
-        double finalStats[] = new double[3];
-        finalStats[0] = authorFollowers;
-        finalStats[2] = authorFollowers;
-        int missing = retweets.peekLast() - r.size(), currentRt, currentUs, currentLi;
-        for (User u : r) {
-            finalStats[0] += u.getFollowersCount();
-            if (finalStats[2] < u.getFollowersCount())
-                finalStats[2] = u.getFollowersCount();
-        }
-        finalStats[1] = finalStats[0] / (r.size() + 1);
-        result.add(finalStats);
-        return finalStats;
-    }
-
     public static LinkedList<double[]> followerStats(HashSet<User> users, LinkedList<Integer> retweets, LinkedList<Double> likelihood, int authorFollowers) {
         LinkedList<double[]> result = new LinkedList<double[]>();
         double finalStats[] = new double[3], rtH[] = new double[retweets.size()], rtD[] = new double[retweets.size()], liH[] = new double[retweets.size()],
@@ -543,58 +517,6 @@ public class SampleCreator {
         }
     }
 
-    public static void continueClustering(int cont) {
-        ObjectInputStream input;
-        LinkedList<MonitoredStatus> s, d;
-        try {
-            input = new ObjectInputStream(new BufferedInputStream(new FileInputStream("ClusterProgress.ser")));
-            s = (LinkedList<MonitoredStatus>)input.readObject();
-            d = (LinkedList<MonitoredStatus>)input.readObject();
-            input.close();
-            Status st;
-            User u;
-            int i = cont;
-            DirectedSparseGraph<Long, Pair<Long>> g;
-            MonitoredStatus m;
-            Iterator<MonitoredStatus> it = s.iterator();
-            while (it.hasNext()) {
-                g = null;
-                m = it.next();
-                System.out.println(i);
-                System.out.println(m.getRetweetCount().peekLast());
-                if (m.getRetweetCount().peekLast() != 0) {
-                    st = twitter.showStatus(m.getId());
-                    u = st.getUser();
-                    g = getRtFollowerGraph(u, m.getRetweeters());
-                }
-                printGraphForMCL(g, "MCL\\" + i + ".abc");
-                i++;
-                it.remove();
-                saveLists(s, d, "ClusterProgress.ser");
-            }
-            System.out.println("===============DEAD===============");
-            it = d.iterator();
-            while (it.hasNext()) {
-                g = null;
-                m = it.next();
-                System.out.println(i);
-                System.out.println(m.getRetweetCount().peekLast());
-                if (m.getRetweetCount().peekLast() != 0) {
-                    st = twitter.showStatus(m.getId());
-                    u = st.getUser();
-                    g = getRtFollowerGraph(u, m.getRetweeters());
-                }
-                printGraphForMCL(g, "MCLD\\" + i + ".abc");
-                i++;
-                it.remove();
-                saveLists(s, d, "ClusterProgress.ser");
-            }
-        } catch (Exception e) {
-            e.printStackTrace();
-            System.out.println("ZC");
-        }
-    }
-
     public static void continueDiffusion(File difFile) {
 
     }
@@ -633,15 +555,58 @@ public class SampleCreator {
         }
     }
 
-    public static void clusters(LinkedList<MonitoredStatus> s, LinkedList<MonitoredStatus> d) {	
-        Status st;
-        User u;
-        int i = 0;
-        DirectedSparseGraph<Long, Pair<Long>> g;
-        MonitoredStatus m;
-        Iterator<MonitoredStatus> it = s.iterator();
-        while (it.hasNext()) {
+    public static void makeFilesForClustering(LinkedList<MonitoredStatus> monitor, String dir, int startNumber) throws IOException {	
+        Status updatedTweet;
+        User updatedUser;
+        int tweetNumber = startNumber;
+        DirectedSparseGraph<Long, Pair<Long>> graph;
+        MonitoredStatus tweet;
+        Iterator<MonitoredStatus> iMonitor = monitor.iterator();
+        while (iMonitor.hasNext()) {
             try {
+                graph = null;
+                tweet = iMonitor.next();
+                if (tweet.getRetweetCount().peekLast() != 0) {
+                    updatedTweet = twitter.showStatus(tweet.getId());
+                    updatedUser = updatedTweet.getUser();
+                    graph = getRtFollowerGraph(updatedUser, tweet.getRetweeters());
+                }
+                printGraphForMCL(graph, dir + "\\" + tweetNumber + ".abc");
+            } catch (TwitterException e) {
+                e.printStackTrace();
+                System.out.println("Tweet deleted, skipping.");
+            } finally {
+                tweetNumber++;
+                iMonitor.remove();
+                saveObjectToFile(monitor, CLUSTERING_PROGRESS);
+                PrintWriter writer = new PrintWriter(new BufferedWriter(new FileWriter(CLUSTERING_PROGRESS_NUMBER)));
+                writer.println(new Date());
+                writer.close();
+            }
+        }
+    }
+    
+    public static void startFilesForClustering(LinkedList<MonitoredStatus> monitor, String dir) throws IOException {
+        makeFilesForClustering(monitor, dir, 0);
+    }
+    
+    public static void continueFilesForClustering(int cont) {
+        ObjectInputStream input;
+        LinkedList<MonitoredStatus> s, d;
+        try {
+            input = new ObjectInputStream(new BufferedInputStream(new FileInputStream("ClusterProgress.ser")));
+            s = (LinkedList<MonitoredStatus>)input.readObject();
+            input.close();
+            input = new ObjectInputStream(new BufferedInputStream(new FileInputStream("ClusterProgressD.ser")));
+            d = (LinkedList<MonitoredStatus>)input.readObject();
+            input.close();
+            Status st;
+            User u;
+            int i = cont;
+            DirectedSparseGraph<Long, Pair<Long>> g;
+            MonitoredStatus m;
+            Iterator<MonitoredStatus> it = s.iterator();
+            while (it.hasNext()) {
                 g = null;
                 m = it.next();
                 System.out.println(i);
@@ -652,20 +617,13 @@ public class SampleCreator {
                     g = getRtFollowerGraph(u, m.getRetweeters());
                 }
                 printGraphForMCL(g, "MCL\\" + i + ".abc");
-            } catch (TwitterException e) {
-                e.printStackTrace();
-                System.out.println("Tweet deleted, skipping");
-            } finally {
                 i++;
                 it.remove();
-                saveLists(s, d, "ClusterProgress.ser");
+                saveObjectToFile(s, new File("ClusterProgress.ser"));
             }
-
-        }
-        System.out.println("===============DEAD===============");
-        it = d.iterator();
-        while (it.hasNext()) {
-            try {
+            System.out.println("===============DEAD===============");
+            it = d.iterator();
+            while (it.hasNext()) {
                 g = null;
                 m = it.next();
                 System.out.println(i);
@@ -676,14 +634,13 @@ public class SampleCreator {
                     g = getRtFollowerGraph(u, m.getRetweeters());
                 }
                 printGraphForMCL(g, "MCLD\\" + i + ".abc");
-            } catch (TwitterException e) {
-                e.printStackTrace();
-                System.out.println("Tweet deleted, skipping");
-            } finally {
                 i++;
                 it.remove();
-                saveLists(s, d, "ClusterProgress.ser");
+                saveObjectToFile(d, new File("ClusterProgressD.ser"));
             }
+        } catch (Exception e) {
+            e.printStackTrace();
+            System.out.println("ZC");
         }
     }
 
@@ -703,7 +660,7 @@ public class SampleCreator {
                     m.setTreeDepth(1);
                 }
                 i++;
-                saveLists(s, d, "DiffusionProgress.ser");
+                saveObjectToFile(s, new File("DiffusionProgress.ser"));
             }
             System.out.println("===============DEAD===============");
             it = d.iterator();
@@ -717,7 +674,7 @@ public class SampleCreator {
                     m.setTreeDepth(1);
                 }
                 i++;
-                saveLists(s, d, "DiffusionProgress.ser");
+                saveObjectToFile(d, new File("DiffusionProgressD.ser"));
             }
         } catch (Exception e) {
             e.printStackTrace();
@@ -732,54 +689,43 @@ public class SampleCreator {
         return false;
     }
 
-    public static void saveSets(HashSet<MonitoredStatus> s, HashSet<MonitoredStatus> d) {
-        try {
-            System.out.println("SAVING THE GAME... PLEASE DON'T TURN OFF THE POWER");
-            int i = 0;
-            OutputStream fileo, buffero;
-            ObjectOutputStream output;
-            fileo = new FileOutputStream("MonitorTest.ser");
-            buffero =  new BufferedOutputStream(fileo);
-            output = new ObjectOutputStream(buffero);
-            output.writeObject(s);
-            output.writeObject(d);
-            output.close();
-            PrintWriter writer = new PrintWriter("MonitorTest.txt");
-            writer.println(new Date());
-            writer.close();
-            for (MonitoredStatus m : s)
-                m.printToFile("MonitorTest.txt");
-            PrintWriter writer2 = new PrintWriter(new BufferedWriter(new FileWriter("MonitorTest.txt", true)));
-            writer2.println("===========DEAD===========");
-            writer2.close();
-            for (MonitoredStatus m : d) 
-                m.printToFile("MonitorTest.txt");
-            System.out.println("THE GAME HAS BEEN SAVED");
-        } catch (IOException e) {
-            // TODO Auto-generated catch block
-            e.printStackTrace();
-        }
-
+    public static void saveMonitorProgress(HashSet<MonitoredStatus> monitor, HashSet<MonitoredStatus> dead) throws IOException {
+        System.out.println("Saving monitor progress.");
+        saveObjectToFile(monitor, MONITOR_PROGRESS);
+        saveObjectToFile(dead, DEAD_MONITOR_PROGRESS);
+        printMonitorToFile(monitor, PRINTED_MONITOR_PROGRESS);
+        printMonitorToFile(dead, PRINTED_DEAD_MONITOR_PROGRESS);
+        System.out.println("Progress has been saved.");
     }
 
-    public static void saveLists(LinkedList<MonitoredStatus> s, LinkedList<MonitoredStatus> d, String file) {
-        try {
-            System.out.println("SAVING THE GAME... PLEASE DON'T TURN OFF THE POWER");
-            int i = 0;
-            OutputStream fileo, buffero;
-            ObjectOutputStream output;
-            fileo = new FileOutputStream(file);
-            buffero = new BufferedOutputStream(fileo);
-            output = new ObjectOutputStream(buffero);
-            output.writeObject(s);
-            output.writeObject(d);
-            output.close();
-            System.out.println("THE GAME HAS BEEN SAVED");
-        } catch (IOException e) {
-            // TODO Auto-generated catch block
-            e.printStackTrace();
-        }
-
+    public static void saveFinalMonitors(LinkedList<MonitoredStatus> monitor, LinkedList<MonitoredStatus> dead) throws IOException {
+        System.out.println("Saving final monitors.");
+        saveObjectToFile(monitor, MONITOR_FINAL);
+        saveObjectToFile(dead, DEAD_MONITOR_FINAL);
+        printMonitorToFile(monitor, PRINTED_MONITOR_FINAL);
+        printMonitorToFile(dead, PRINTED_DEAD_MONITOR_FINAL);
+        System.out.println("Final monitors have been saved.");
+    }
+    
+    public static <T> LinkedList<T> turnSetIntoLinkedList(Set<T> set) {
+        LinkedList<T> list = new LinkedList<T>();
+        for (T element : set)
+            list.add(element);
+        return list;
+    }
+    
+    public static void saveObjectToFile(Serializable obj, File file) throws IOException {
+        ObjectOutputStream output = new ObjectOutputStream(new BufferedOutputStream(new FileOutputStream(file)));
+        output.writeObject(obj);
+        output.close();
+    }
+    
+    public static void printMonitorToFile(Iterable<MonitoredStatus> monitor, File file) throws IOException {
+        PrintWriter writer = new PrintWriter(new BufferedWriter(new FileWriter(file)));
+        writer.println(new Date());
+        writer.close();
+        for (MonitoredStatus tweet : monitor)
+            tweet.printToFile(file);
     }
 
     public static LinkedList<Status> streamTweets(int count) {
