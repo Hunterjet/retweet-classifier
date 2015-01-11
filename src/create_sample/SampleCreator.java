@@ -24,6 +24,7 @@ import java.util.Iterator;
 import java.util.LinkedList;
 import java.util.List;
 import java.util.PriorityQueue;
+import java.util.Scanner;
 import java.util.Set;
 
 import twitter4j.IDs;
@@ -44,10 +45,18 @@ import edu.uci.ics.jung.graph.util.Pair;
 
 public class SampleCreator {
 
-    private static final int MAX_MONITORED = 18000; // 18000 max
-    private static final int MAX_CYCLES = 40;
+    private static final int MAX_STREAMED = 18000;
+    private static final int MAX_CYCLES = 10;
     private static final int MAX_LOOKUP_SIZE = 100; // Size of the Twitter API Status Lookup method response
     private static final int MIN_RETWEETS = 2; // Minimum amount of retweets necessary to monitor a tweet
+    private static final int GET_FOLLOWERS_APP_LIMIT = 15; // Max amount of calls to getFollowersIDs in 15 minutes through app auth
+    private static final int GET_FOLLOWERS_USER_LIMIT = 15; // Max amount of calls to getFollowersIDs in 15 minutes through user auth
+    private static final int GET_RETWEETS_USER_LIMIT = 15; // Max amount of calls to getRetweets in 15 minutes through user auth
+    private static final int GET_RETWEETS_APP_LIMIT = 60; // Max amount of calls to getRetweets in 15 minutes through app auth
+    private static final int GET_RETWEETERS_USER_LIMIT = 15; // Max amount of calls to getRetweeterIDs in 15 minutes through user auth
+    private static final int GET_RETWEETERS_APP_LIMIT = 60; // Max amount of calls to getRetweeterIDs in 15 minutes through app auth
+    // Max amount of calls to getRetweeter functions in 15 minutes
+    private static final int MAX_MONITORED = GET_RETWEETS_USER_LIMIT + GET_RETWEETS_APP_LIMIT + GET_RETWEETERS_USER_LIMIT + GET_RETWEETERS_APP_LIMIT; 
     private static final long FIFTEEN_MINUTES = 900000;
     private static final long ONE_SECOND = 1000;
     private static final long TWO_SECONDS = 2000;
@@ -70,11 +79,11 @@ public class SampleCreator {
     private static final File DIFFUSION_PROGRESS = new File("DiffusionProgress.ser");
     private static final File DIFFUSION_PROGRESS_NUMBER = new File("DiffusionProgress.txt");
     
-    private static int findFollowersRate = 0, getRetweetsRate = 0;
+    private static int findFollowersRate = 0, getRetweetsRate = 0, secondsStreamed = 0;
     private static Twitter twitter, userAuth, appAuth;
     private static PriorityQueue<Long> checkedRetweetedTweets = new PriorityQueue<Long>();
 
-    public static void main(String[] args) throws TwitterException, ClassNotFoundException, IOException, InterruptedException {
+    public static void main(String[] args) throws ClassNotFoundException, InterruptedException, IOException, TwitterException {
         // Don't want the Twitter4J logger cluttering up the console
         System.setProperty("twitter4j.loggerFactory", "twitter4j.NullLoggerFactory");
         
@@ -125,9 +134,21 @@ public class SampleCreator {
             printMonitors(monitor, dead);
 
             // Get new sample
-            newSample = streamTweets(MAX_MONITORED);
+            try {
+            	newSample = streamTweets(MAX_STREAMED);
+            } catch (InterruptedException e) {
+                System.out.println("Fatal: Stream sleep interrupted.");
+                e.printStackTrace();
+                throw e;
+            }
 
-            saveMonitorProgress(monitor, dead);
+            try {
+            	saveMonitorProgress(monitor, dead);
+            } catch (IOException e) {
+            	System.out.println("Fatal: Could not write to monitor progress files.");
+            	e.printStackTrace();
+            	throw e;
+            }
 
             // End after a number of cycles
             if (cycles == MAX_CYCLES) {
@@ -137,10 +158,15 @@ public class SampleCreator {
             // Refresh rate limit window
             if (!finished) {
                 try {
-                    Thread.sleep(FIFTEEN_MINUTES);
+                	System.out.println("Cycle done: " + cycles);
+                	if (FIFTEEN_MINUTES - (secondsStreamed * 1000) > 0) {
+                		System.out.println("Sleeping " + (FIFTEEN_MINUTES - (secondsStreamed * 1000)) + " ms to refresh rate limit.");
+                    	System.out.println(new Date());
+                		Thread.sleep(FIFTEEN_MINUTES - (secondsStreamed * 1000));
+                	}
                     getRetweetsRate = 0;
                 } catch (InterruptedException e) {
-                    System.out.println("Fatal: Rate limit refresh sleep interrupted");
+                    System.out.println("Fatal: Rate limit refresh sleep interrupted.");
                     e.printStackTrace();
                     throw e;
                 }
@@ -152,30 +178,48 @@ public class SampleCreator {
         // Save monitors
         LinkedList<MonitoredStatus> orderedMonitor = turnSetIntoLinkedList(monitor);
         LinkedList<MonitoredStatus> orderedDead = turnSetIntoLinkedList(dead);
-        saveFinalMonitors(orderedMonitor, orderedDead);
         
-        /*
-	    s2 = (LinkedList<MonitoredStatus>)s.clone();
-    	d2 = (LinkedList<MonitoredStatus>)d.clone();
+        try {
+        	saveFinalMonitors(orderedMonitor, orderedDead);
+        } catch (IOException e) {
+        	System.out.println("Fatal: Could not write to monitor final files.");
+        	e.printStackTrace();
+        	throw e;
+        }
+        
+        // Make files for clustering and calculate diffusion graphs
+        try {
+        	startFilesForClustering(orderedDead, "MCL");
+        } catch (InterruptedException e) {
+        	System.out.println("Fatal: Sleep to refresh findFollowers interrupted.");
+        	e.printStackTrace();
+        	throw e;
+        } catch (IOException e) {
+        	System.out.println("Fatal: Could not write to cluster files.");
+        	e.printStackTrace();
+        	throw e;
+        }
+        
+        try {
+        	startDiffusionTreeDepths(orderedDead, DEAD_MONITOR_FINAL);
+        } catch (InterruptedException e) {
+        	System.out.println("Fatal: Sleep to refresh findFollowers interrupted.");
+        	e.printStackTrace();
+        	throw e;
+        } catch (IOException e) {
+        	System.out.println("Fatal: Could not access diffusion files.");
+        	e.printStackTrace();
+        	throw e;
+        }
 
-    	/*System.out.println(s.size());
-    	System.out.println(d.size());
-    	save2(s, d, "Sample 2/Viernes/MonitorTestC.ser");
-    	System.out.println("CLUSTERING!");
-	    clusters(s, d);
-    	//continueClustering(20);
-	    System.out.println("DIFFUSING!");
-	    diffusion(s2, d2);
-	    save2(s2, d2, "Sample 2/Viernes/MonitorTestDif.ser");
-
-		LinkedList<String> dirs = new LinkedList<String>();
+		/*LinkedList<String> dirs = new LinkedList<String>();
 	    dirs.add("Test Sample Processed/Miercoles");
 	    dirs.add("Test Sample Processed/Jueves");
 	    dirs.add("Test Sample Processed/Sabado");
 	    dirs.add("Test Sample Processed/Domingo");
 	    makeSampleForPythonDC(dirs, "TestSample6");
-	    //*/
-        /*LinkedList<String> dirs2 = new LinkedList<String>();
+
+		LinkedList<String> dirs2 = new LinkedList<String>();
 	    dirs2.add("Complete Sample Processed/Lunes");
 	    dirs2.add("Complete Sample Processed/Martes");
 	    dirs2.add("Complete Sample Processed/Miercoles");
@@ -184,7 +228,7 @@ public class SampleCreator {
 	    dirs2.add("Complete Sample Processed/Sabado");
 	    dirs2.add("Complete Sample Processed/Domingo");
 	    makeSampleForPythonDC(dirs2, "CompleteSample6");
-	    /**/
+	    */
         System.out.println("Finished.");
     }
     
@@ -209,7 +253,7 @@ public class SampleCreator {
             tweet = (MonitoredStatus)iMonitor.next();
             try {
                 updated = twitter.showStatus(tweet.getId());
-                retweeters = getRetweeters(updated, updated.getRetweetCount() - tweet.getRetweetCount().peekLast());
+                retweeters = getSomeRetweeters(updated, updated.getRetweetCount() - tweet.getRetweetCount().peekLast());
                 for (User u : retweeters)
                     tweet.getRetweeters().add(u);
                 tweet.addObservation(updated.getRetweetCount(), getRetweetLikelihood(updated, retweeters));
@@ -250,7 +294,7 @@ public class SampleCreator {
             }
             updatedSample = twitter.lookup(Arrays.copyOfRange(ids, i * MAX_LOOKUP_SIZE, lookupUpperLimit));
             for (Status status: updatedSample) {
-                if (status.getLang().equals("en") && status.getRetweetCount() >= MIN_RETWEETS && monitor.size() < 150) {
+                if (status.getLang().equals("en") && status.getRetweetCount() >= MIN_RETWEETS && getRetweetsRate < MAX_MONITORED) {
                     addedTweet = new MonitoredStatus(status.getId(), status.getText(), status.getCreatedAt(),
                             (status.getUserMentionEntities().length > 0) && status.getText().startsWith("@"), 
                             status.getUserMentionEntities().length > 0, status.getHashtagEntities().length > 0, 
@@ -259,7 +303,7 @@ public class SampleCreator {
                             containsArray(status.getText(), NEGATIVE_EMOTICONS), status.getUser().getFollowersCount(), 
                             sentimentClassifier.classify(status.getText()), topicClassifier.classify(status.getText()));
                     if (status.getRetweetCount() > 0) {
-                        retweeters = getRetweeters(status, status.getRetweetCount());
+                        retweeters = getSomeRetweeters(status, status.getRetweetCount());
                         for (User u : retweeters)
                             addedTweet.getRetweeters().add(u);
                         addedTweet.addObservation(status.getRetweetCount(), getRetweetLikelihood(status, retweeters));
@@ -328,7 +372,7 @@ public class SampleCreator {
                             containsArray(status.getText(), NEGATIVE_EMOTICONS), status.getUser().getFollowersCount(), 
                             sentimentClassifier.classify(status.getText()), topicClassifier.classify(status.getText()));
                     if (status.getRetweetCount() > 0) {
-                        retweeters = getRetweeters(status, status.getRetweetCount());
+                        retweeters = getSomeRetweeters(status, status.getRetweetCount());
                         for (User u : retweeters)
                             addedTweet.getRetweeters().add(u);
                         addedTweet.addObservation(status.getRetweetCount(), getRetweetLikelihood(status, retweeters));
@@ -344,19 +388,23 @@ public class SampleCreator {
     
     public static final void printMonitors(HashSet<MonitoredStatus> monitor, HashSet<MonitoredStatus> dead) {
         int tweetNumber = 0;
+        System.out.println("Printing monitors.");
         for (MonitoredStatus status: monitor) {
             System.out.println(tweetNumber);
             status.print();
             System.out.println();
             tweetNumber++;
         }
-        System.out.println("===============DEAD===============");
-        for (MonitoredStatus status: dead) {
-            System.out.println(tweetNumber);
-            status.print();
-            System.out.println();
-            tweetNumber++;
+        if (dead.size() > 0) {
+	        System.out.println("===============DEAD===============");
+	        for (MonitoredStatus status: dead) {
+	            System.out.println(tweetNumber);
+	            status.print();
+	            System.out.println();
+	            tweetNumber++;
+	        }
         }
+        System.out.println("Finished printing monitors.");
     }
     
     public static HashSet<MonitoredStatus> readMonitorProgressFile(File file) throws ClassNotFoundException, IOException {
@@ -517,45 +565,7 @@ public class SampleCreator {
         }
     }
 
-    public static void continueDiffusion(File difFile) {
-
-    }
-
-    public static void makeSampleForPython(List<String> dirs, String sampleName) {
-        ObjectInputStream input;
-        int i = 0;
-        try {
-            HashSet<MonitoredStatus> s = new HashSet<MonitoredStatus>();
-            PrintWriter output = new PrintWriter(new BufferedWriter(new FileWriter(sampleName + ".txt"))), 
-                    output2 = new PrintWriter(new BufferedWriter(new FileWriter(sampleName + "D.txt")));
-            for (String dir : dirs) {
-                i++;
-                System.out.println(i);
-                input = new ObjectInputStream(new BufferedInputStream(new FileInputStream("TweetCollect/" + dir + "/MonitorTest.ser")));
-                s = (HashSet<MonitoredStatus>)input.readObject();
-                System.out.println(s.size());
-                for (MonitoredStatus m : s)
-                    output.println(m.getRetweetCount().getLast() + " " + m.isDirect() + " " + m.hasMention() + " " + 
-                            m.isExclamation() + " " + m.hasHashtag() + " " + m.hasNegativeEmoticon() + " " + m.hasPositiveEmoticon() + 
-                            " " + m.isQuestion() + " " + m.hasURL() + " " + m.getSentiment() + " " + m.getTopic());
-                s = (HashSet<MonitoredStatus>)input.readObject();
-                System.out.println(s.size());
-                for (MonitoredStatus m : s)
-                    output2.println(m.getRetweetCount().getLast() + " " + m.isDirect() + " " + m.hasMention() + " " + 
-                            m.isExclamation() + " " + m.hasHashtag() + " " + m.hasNegativeEmoticon() + " " + m.hasPositiveEmoticon() + 
-                            " " + m.isQuestion() + " " + m.hasURL() + " " + m.getSentiment() + " " + m.getTopic());
-                input.close();
-                s = null;
-                System.gc();
-            }
-            output.close();
-            output2.close();
-        } catch (Exception e) {
-            e.printStackTrace();
-        }
-    }
-
-    public static void makeFilesForClustering(LinkedList<MonitoredStatus> monitor, String dir, int startNumber) throws IOException {	
+    public static void makeFilesForClustering(LinkedList<MonitoredStatus> monitor, String dir, int startNumber) throws InterruptedException, IOException {	
         Status updatedTweet;
         User updatedUser;
         int tweetNumber = startNumber;
@@ -569,7 +579,7 @@ public class SampleCreator {
                 if (tweet.getRetweetCount().peekLast() != 0) {
                     updatedTweet = twitter.showStatus(tweet.getId());
                     updatedUser = updatedTweet.getUser();
-                    graph = getRtFollowerGraph(updatedUser, tweet.getRetweeters());
+                    graph = getRetweeterFollowerGraph(updatedUser, tweet.getRetweeters());
                 }
                 printGraphForMCL(graph, dir + "\\" + tweetNumber + ".abc");
             } catch (TwitterException e) {
@@ -580,106 +590,67 @@ public class SampleCreator {
                 iMonitor.remove();
                 saveObjectToFile(monitor, CLUSTERING_PROGRESS);
                 PrintWriter writer = new PrintWriter(new BufferedWriter(new FileWriter(CLUSTERING_PROGRESS_NUMBER)));
-                writer.println(new Date());
+                writer.println(tweetNumber);
                 writer.close();
             }
         }
     }
     
-    public static void startFilesForClustering(LinkedList<MonitoredStatus> monitor, String dir) throws IOException {
+    public static void startFilesForClustering(LinkedList<MonitoredStatus> monitor, String dir) throws InterruptedException, IOException {
         makeFilesForClustering(monitor, dir, 0);
     }
     
-    public static void continueFilesForClustering(int cont) {
-        ObjectInputStream input;
-        LinkedList<MonitoredStatus> s, d;
-        try {
-            input = new ObjectInputStream(new BufferedInputStream(new FileInputStream("ClusterProgress.ser")));
-            s = (LinkedList<MonitoredStatus>)input.readObject();
-            input.close();
-            input = new ObjectInputStream(new BufferedInputStream(new FileInputStream("ClusterProgressD.ser")));
-            d = (LinkedList<MonitoredStatus>)input.readObject();
-            input.close();
-            Status st;
-            User u;
-            int i = cont;
-            DirectedSparseGraph<Long, Pair<Long>> g;
-            MonitoredStatus m;
-            Iterator<MonitoredStatus> it = s.iterator();
-            while (it.hasNext()) {
-                g = null;
-                m = it.next();
-                System.out.println(i);
-                System.out.println(m.getRetweetCount().peekLast());
-                if (m.getRetweetCount().peekLast() != 0) {
-                    st = twitter.showStatus(m.getId());
-                    u = st.getUser();
-                    g = getRtFollowerGraph(u, m.getRetweeters());
-                }
-                printGraphForMCL(g, "MCL\\" + i + ".abc");
-                i++;
-                it.remove();
-                saveObjectToFile(s, new File("ClusterProgress.ser"));
-            }
-            System.out.println("===============DEAD===============");
-            it = d.iterator();
-            while (it.hasNext()) {
-                g = null;
-                m = it.next();
-                System.out.println(i);
-                System.out.println(m.getRetweetCount().peekLast());
-                if (m.getRetweetCount().peekLast() != 0) {
-                    st = twitter.showStatus(m.getId());
-                    u = st.getUser();
-                    g = getRtFollowerGraph(u, m.getRetweeters());
-                }
-                printGraphForMCL(g, "MCLD\\" + i + ".abc");
-                i++;
-                it.remove();
-                saveObjectToFile(d, new File("ClusterProgressD.ser"));
-            }
-        } catch (Exception e) {
-            e.printStackTrace();
-            System.out.println("ZC");
-        }
+    public static void continueFilesForClustering(String dir) throws InterruptedException, IOException, ClassNotFoundException {
+        ObjectInputStream input = new ObjectInputStream(new BufferedInputStream(new FileInputStream(CLUSTERING_PROGRESS)));
+        @SuppressWarnings("unchecked") // There should be a linked list in the file.
+		LinkedList<MonitoredStatus> monitor = (LinkedList<MonitoredStatus>)input.readObject();
+        input.close();
+        Scanner scanner = new Scanner(CLUSTERING_PROGRESS_NUMBER);
+        int tweetNumber = scanner.nextInt();
+        scanner.close();
+        makeFilesForClustering(monitor, dir, tweetNumber);
     }
 
-    public static void diffusion(LinkedList<MonitoredStatus> s, LinkedList<MonitoredStatus> d) {
-        try { 
-            int i = 0;
-            DirectedSparseGraph<Long, Pair<Long>> g;
-            Iterator<MonitoredStatus> it = s.iterator();
-            MonitoredStatus m;
-            while (it.hasNext()) {
-                m = it.next();
-                System.out.println(i);
-                System.out.println(m.getRetweetCount().peekLast());
-                if (m.getRetweetCount().peekLast() != 0) {
-                    g = makeDiffusionGraph(m);
-                } else {
-                    m.setTreeDepth(1);
-                }
-                i++;
-                saveObjectToFile(s, new File("DiffusionProgress.ser"));
+    public static void setDiffusionTreeDepths(LinkedList<MonitoredStatus> monitor, File output, int startNumber) throws InterruptedException, IOException {
+        int tweetNumber = startNumber;
+        Iterator<MonitoredStatus> iMonitor = monitor.iterator();
+        MonitoredStatus tweet;
+        while (iMonitor.hasNext()) {
+            tweet = iMonitor.next();
+            System.out.println(tweetNumber);
+            System.out.println(tweet.getRetweetCount().peekLast());
+            if (tweet.getRetweetCount().peekLast() != 0) {
+            	try {
+            		makeDiffusionGraph(tweet);
+            	} catch (TwitterException e) {
+            		System.out.println("Method: setDiffusionTreeDepths. Tweet no longer exists. Setting tree depth to 0.");
+            		tweet.setTreeDepth(0);
+            	}
+            } else {
+                tweet.setTreeDepth(1);
             }
-            System.out.println("===============DEAD===============");
-            it = d.iterator();
-            while (it.hasNext()) {
-                m = it.next();
-                System.out.println(i);
-                System.out.println(m.getRetweetCount().peekLast());
-                if (m.getRetweetCount().peekLast() != 0) {
-                    g = makeDiffusionGraph(m);
-                } else {
-                    m.setTreeDepth(1);
-                }
-                i++;
-                saveObjectToFile(d, new File("DiffusionProgressD.ser"));
-            }
-        } catch (Exception e) {
-            e.printStackTrace();
-            System.out.println("Z2");
+            tweetNumber++;
+            saveObjectToFile(monitor, DIFFUSION_PROGRESS);
+            PrintWriter writer = new PrintWriter(new BufferedWriter(new FileWriter(DIFFUSION_PROGRESS_NUMBER)));
+            writer.println(tweetNumber);
+            writer.close();
         }
+        saveObjectToFile(monitor, output);     
+    }
+    
+    public static void startDiffusionTreeDepths(LinkedList<MonitoredStatus> monitor, File output) throws InterruptedException, IOException {
+        setDiffusionTreeDepths(monitor, output, 0);
+    }
+    
+    public static void continueDiffusionTreeDepths(File output) throws InterruptedException, IOException, ClassNotFoundException {
+        ObjectInputStream input = new ObjectInputStream(new BufferedInputStream(new FileInputStream(DIFFUSION_PROGRESS)));
+        @SuppressWarnings("unchecked") // There should be a linked list in the file.
+		LinkedList<MonitoredStatus> monitor = (LinkedList<MonitoredStatus>)input.readObject();
+        input.close();
+        Scanner scanner = new Scanner(DIFFUSION_PROGRESS_NUMBER);
+        int tweetNumber = scanner.nextInt();
+        scanner.close();
+        setDiffusionTreeDepths(monitor, output, tweetNumber);
     }
 
     public static boolean containsArray(String s, String[] a) {
@@ -728,30 +699,23 @@ public class SampleCreator {
             tweet.printToFile(file);
     }
 
-    public static LinkedList<Status> streamTweets(int count) {
+    public static LinkedList<Status> streamTweets(int count) throws InterruptedException {
         TwitterStream stream;
         Listener listener;
+        secondsStreamed = 0;
+        System.out.println("Started streaming.");
         listener = new Listener(count);
         stream = TwitterStreamFactory.getSingleton();
         stream.addListener(listener);
         stream.sample();
         while (!listener.limitHit()) {
-            try {
-                Thread.sleep(ONE_SECOND);
-            } catch (InterruptedException e) {
-                System.out.println("E");
-                e.printStackTrace();
-            }
+        	Thread.sleep(ONE_SECOND);
+        	secondsStreamed++;
         }
         stream.cleanUp();
         stream.shutdown();
-        try {
-            Thread.sleep(TWO_SECONDS);
-        } catch (InterruptedException e) {
-            System.out.println("F");
-            e.printStackTrace();
-        }
-        System.out.println("FINISHED STREAMING");
+        Thread.sleep(TWO_SECONDS);
+        System.out.println("Finished streaming.");
         return listener.getTweets();
     }
 
@@ -762,81 +726,63 @@ public class SampleCreator {
             twitter = appAuth;
     }
 
-    public static boolean isRetweeter(Status status, String user) {
-        List<Status> timeline = getTimelineSince(user, status.getCreatedAt());
-        for (Status tweet: timeline) {
-
+    public static DirectedSparseGraph<Long, Pair<Long>> makeDiffusionGraph(MonitoredStatus tweet) throws InterruptedException, TwitterException {
+        int i = 0, treeSize = 0;
+        long[] retweeters = new long[tweet.getRetweeters().size()];
+        for (User user : tweet.getRetweeters()) {
+            retweeters[i] = user.getId();
+            i++;
         }
-        return true;
-    }
-
-    public static DirectedSparseGraph<Long, Pair<Long>> makeDiffusionGraph(MonitoredStatus status) {
-        try {
-            int i = 0, treeSize = 0;
-            long[] rters = new long[status.getRetweeters().size()];
-            for (User u : status.getRetweeters()) {
-                rters[i] = u.getId();
-                i++;
+        Arrays.sort(retweeters);
+        DirectedSparseGraph<Long, Pair<Long>> graph = new DirectedSparseGraph<Long, Pair<Long>>();
+        Status updatedTweet;
+        updatedTweet = twitter.showStatus(tweet.getId());
+        long currentUser = updatedTweet.getUser().getId();
+        graph.addVertex(currentUser);
+        LinkedList<Long> queue = new LinkedList<Long>();
+        queue.add(currentUser);
+        LinkedList<Long> followerList;
+        ArrayList<Long> checked = new ArrayList<Long>();
+        Long[] followers;
+        treeSize = 1;
+        int currentGen = 1, nextGen = 0;
+        while (!queue.isEmpty()) {
+            currentUser = queue.pop();
+            currentGen--; // Reduce the amount of tweets in the current tree level
+            if (currentGen < 0) { // If we've moved into the next tree level
+                treeSize++;
+                currentGen = nextGen; // Change tree level size counters
+                nextGen = 0;
             }
-            Arrays.sort(rters);
-            DirectedSparseGraph<Long, Pair<Long>> g = new DirectedSparseGraph<Long, Pair<Long>>();
-            Status st;
-            st = twitter.showStatus(status.getId());
-            long current = st.getUser().getId();
-            g.addVertex(current);
-            LinkedList<Long> q = new LinkedList<Long>();
-            q.add(current);
-            LinkedList<Long> followerList;
-            ArrayList<Long> checked = new ArrayList<Long>();
-            Long[] followers;
-            treeSize = 1;
-            int currentGen = 1, nextGen = 0;
-            while (!q.isEmpty()) {
-                System.out.println(q.size());
-                current = q.pop();
-                currentGen--;
-                if (currentGen < 0) {
-                    treeSize++;
-                    currentGen = nextGen;
-                    nextGen = 0;
-                }
-                checked.add(current);
-                followerList = findFollowers(current);
-                followers = followerList.toArray(new Long[followerList.size()]);
-                Arrays.sort(followers);
-                for (long rt : rters) {
-                    if (!checked.contains(rt) && Arrays.binarySearch(followers, rt) >= 0) {
-                        g.addVertex(rt);
-                        g.addEdge(new Pair<Long>(current, rt), current, rt);
-                        q.add(rt);
-                        nextGen++;
-                    }
+            checked.add(currentUser);
+            followerList = findFollowers(currentUser);
+            followers = followerList.toArray(new Long[followerList.size()]);
+            Arrays.sort(followers);
+            for (long retweeter : retweeters) {
+            	// If the retweeter is the current user's follower
+                if (!checked.contains(retweeter) && Arrays.binarySearch(followers, retweeter) >= 0) {
+                	// Add retweeter to the next tree level
+                    graph.addVertex(retweeter);
+                    graph.addEdge(new Pair<Long>(currentUser, retweeter), currentUser, retweeter);
+                    queue.add(retweeter);
+                    nextGen++; // Increase the amount of tweets in the next tree level
                 }
             }
-            status.setTreeDepth(treeSize);
-            System.out.println(treeSize);
-            return g;
-        } catch (TwitterException e) {
-            // TODO Auto-generated catch block
-            e.printStackTrace();
-            return null;
         }
+        tweet.setTreeDepth(treeSize);
+        return graph;
     }
 
-    public static void drawGraph(DirectedSparseGraph<Long, Pair<Long>> g) {
+    public static void drawGraphForGraphViz(DirectedSparseGraph<Long, Pair<Long>> g, File file) throws FileNotFoundException {
         Collection<Pair<Long>> s = g.getEdges();
-        try {
-            PrintWriter p = new PrintWriter("graph2.txt");
-            p.println("digraph g {");
-            p.println("graph [splines = spline];");
-            for (Pair<Long> e : s) {
-                p.println("\"" + e.getFirst() + "\" -> \"" + e.getSecond() + "\";");
-            }
-            p.println("}");
-            p.close();
-        } catch (Exception e) {
-            e.printStackTrace();
+        PrintWriter p = new PrintWriter(file);
+        p.println("digraph g {");
+        p.println("graph [splines = spline];");
+        for (Pair<Long> e : s) {
+            p.println("\"" + e.getFirst() + "\" -> \"" + e.getSecond() + "\";");
         }
+        p.println("}");
+        p.close();
     }
 
     /*public static long[] getRetweeters(Status status) {
@@ -857,54 +803,52 @@ public class SampleCreator {
 		return null;
 	}*/
 
-    public static List<User> getRetweeters(Status status, int rtCount) {
+    public static List<User> getSomeRetweeters(Status status, int retweeterCount) {
         Twitter auth;
         boolean limit;
-        if (getRetweetsRate <= 15) {
+        if (getRetweetsRate <= GET_RETWEETS_USER_LIMIT) {
             auth = userAuth;
             limit = false;
-        } else if (getRetweetsRate <= 75) {
+        } else if (getRetweetsRate <= GET_RETWEETS_USER_LIMIT + GET_RETWEETS_APP_LIMIT) {
             auth = appAuth;
             limit = false;
-        } else if (getRetweetsRate <= 90) {
+        } else if (getRetweetsRate <= GET_RETWEETS_USER_LIMIT + GET_RETWEETS_APP_LIMIT + GET_RETWEETERS_USER_LIMIT) {
             auth = userAuth;
             limit = true;
         } else {
             auth = appAuth;
             limit = true;
         }
-        if (rtCount < 0)
-            rtCount = 0;
+        if (retweeterCount < 0)
+            retweeterCount = 0;
         if (!limit) {
             try {
                 List<Status> statuses = auth.getRetweets(status.getId());
                 getRetweetsRate++;
-                LinkedList<User> ids = new LinkedList<User>();
+                LinkedList<User> retweeters = new LinkedList<User>();
                 Status tweet;
-                if (statuses.size() < rtCount)
-                    rtCount = statuses.size();
-                for (int i = 0; i < rtCount; i++) {
+                if (statuses.size() < retweeterCount)
+                    retweeterCount = statuses.size();
+                for (int i = 0; i < retweeterCount; i++) {
                     tweet = statuses.remove(0);
-                    //System.out.println(i);
-                    ids.add(tweet.getUser());
+                    retweeters.add(tweet.getUser());
                 }
-                return ids;
+                return retweeters;
             } catch (TwitterException e) {
-                System.out.println("WARNING: CHECK ERROR");
+                System.out.println("Method: getSomeRetweeters. No retweeters for this user.");
                 return new LinkedList<User>();
             }
         } else {
             try {
                 long[] statuses = auth.getRetweeterIds(status.getId(), -1l).getIDs();
                 getRetweetsRate++;
-                ResponseList<User> r = userAuth.lookupUsers(statuses);
-                if (r.size() < rtCount)
-                    rtCount = r.size();
-                List<User> ids = r.subList(0, rtCount);
-                return ids;
+                ResponseList<User> retweeters = userAuth.lookupUsers(statuses);
+                if (retweeters.size() < retweeterCount)
+                    retweeterCount = retweeters.size();
+                List<User> retweetersList = retweeters.subList(0, retweeterCount);
+                return retweetersList;
             } catch (TwitterException e) {
-                e.printStackTrace();
-                System.out.println("All rters protected/deleted");
+                System.out.println("Method: getSomeRetweeters. No retweeters for this user.");
                 return new LinkedList<User>();
             }
         }
@@ -928,78 +872,55 @@ public class SampleCreator {
         return null;
     }
 
-    public static void reconnect() {
+    public static void reconnect() throws InterruptedException, TwitterException {
         System.setProperty("twitter4j.loggerFactory", "twitter4j.NullLoggerFactory");
         findFollowersRate = 0;
         getRetweetsRate = 0;
-        userAuth = TwitterFactory.getSingleton();
-        ConfigurationBuilder builder;
-        builder = new ConfigurationBuilder();
-        //builder.setUseSSL(true);
-        builder.setApplicationOnlyAuthEnabled(true);
-        appAuth = new TwitterFactory(builder.build()).getInstance();
-        try {
-            appAuth.getOAuth2Token();
-        } catch (TwitterException e1) {
-            System.out.println("A");
-            e1.printStackTrace();
-        }
-        twitter = userAuth;
-        System.out.println("Sleeping because of reconnection");
+        connectionSetup();
+        System.out.println("Sleeping because of reconnection.");
         System.out.println(new Date());
-        try {
-            Thread.sleep(900000);
-        } catch (InterruptedException e) {
-            System.out.println("Error on sleep in method reconnect");
-            e.printStackTrace();
-        }
+        Thread.sleep(FIFTEEN_MINUTES);
     }
 
-    public static LinkedList<Long> findFollowers(long userid) {
+    public static LinkedList<Long> findFollowers(long userID) throws InterruptedException, TwitterException {
         long cursor = -1;
-        IDs ids;
-        LinkedList<Long> idr = new LinkedList<Long>();
-        int rate = 0;
-        ids = null;
+        IDs followerIDs;
+        LinkedList<Long> followerIDList = new LinkedList<Long>();
+        int localFindFollowersRate = 0;
+        followerIDs = null;
         do {
-            if (findFollowersRate == 15) {
+            if (findFollowersRate == GET_FOLLOWERS_USER_LIMIT) {
                 setUserAuth(false);
             }
-            if (findFollowersRate == 30) {
-                System.out.println("Sleeping because of findFollowers");
+            if (findFollowersRate == GET_FOLLOWERS_USER_LIMIT + GET_FOLLOWERS_APP_LIMIT) {
+                System.out.println("Sleeping to refresh rate for findFollowers");
                 System.out.println(new Date());
-                try {
-                    Thread.sleep(900000);
-                } catch (InterruptedException e) {
-                    System.out.println("Error on sleep in method findfollowers");
-                    e.printStackTrace();
-                }
+                Thread.sleep(FIFTEEN_MINUTES);
                 findFollowersRate = 0;
                 setUserAuth(true);
             }
             try {
                 findFollowersRate++;
-                rate++;
-                ids = twitter.getFollowersIDs(userid, cursor);
-                for (Long one : ids.getIDs()) {
-                    idr.add(one);
+                localFindFollowersRate++;
+                followerIDs = twitter.getFollowersIDs(userID, cursor);
+                for (Long one : followerIDs.getIDs()) {
+                    followerIDList.add(one);
                 }
-                cursor = ids.getNextCursor();
+                cursor = followerIDs.getNextCursor();
             } catch (TwitterException e) {
                 e.printStackTrace();
                 if (e.getStatusCode() != -1) {
-                    ids = null;
-                    System.out.println("Protected user, skipping");
-                    System.out.println("idr size = " + idr.size());
-                    return idr; 
+                    followerIDs = null;
+                    System.out.println("Method: findFollowers. Protected user, skipping.");
+                    return followerIDList; 
                 } else {
-                    System.out.println("Connection error");
+                    System.out.println("Connection error. Reconnecting.");
                     reconnect();
-                    rate--;
+                    localFindFollowersRate--;
                 }
             }
-        } while ((cursor != 0) && (rate < 30));
-        return idr;
+        } while ((cursor != 0) && (localFindFollowersRate < 30));
+        return followerIDList;
     }
 
     //sUntil format: YYYY-MM-DD
@@ -1088,18 +1009,18 @@ public class SampleCreator {
         }
     }
 
-    public static double getRetweetLikelihood(Status status, List<User> rters) {
-        if (!rters.isEmpty()) {
+    public static double getRetweetLikelihood(Status status, List<User> retweeters) {
+        if (!retweeters.isEmpty()) {
             try {
                 int totalFollowers;
-                if (status.getRetweetCount() == rters.size())
+                if (status.getRetweetCount() == retweeters.size())
                     totalFollowers = status.getUser().getFollowersCount();
                 else
                     totalFollowers = 0;
-                for (User rter : rters) {
+                for (User rter : retweeters) {
                     totalFollowers += rter.getFollowersCount();
                 }
-                return rters.size() / (double) totalFollowers;
+                return retweeters.size() / (double) totalFollowers;
             } catch (Exception e) {
                 e.printStackTrace();
             }
@@ -1109,53 +1030,38 @@ public class SampleCreator {
         }
     }
 
-    /*public static double getMetric(Twitter twitter, Status status) {
-		try {
-			return twitter.showStatus(status.getId()).getRetweetCount() * getRetweetLikelihood(status, 0);
-		} catch (TwitterException e) {
-			// TODO Auto-generated catch block
-			e.printStackTrace();
-		}
-		return -1;
-	}*/
-
-    public static DirectedSparseGraph<Long, Pair<Long>> getRtFollowerGraph(User author, HashSet<User> rters) {
-        DirectedSparseGraph<Long, Pair<Long>> g = new DirectedSparseGraph<Long, Pair<Long>>();
+    public static DirectedSparseGraph<Long, Pair<Long>> getRetweeterFollowerGraph(User author, HashSet<User> retweeters) throws InterruptedException, TwitterException {
+        DirectedSparseGraph<Long, Pair<Long>> graph = new DirectedSparseGraph<Long, Pair<Long>>();
         LinkedList<Long> followerList = new LinkedList<Long>();
         User current = author;
-        g.addVertex(current.getId());
+        graph.addVertex(current.getId());
         followerList = findFollowers(current.getId());
-        for (long rt : followerList) {
-            g.addVertex(rt);
-            g.addEdge(new Pair<Long>(current.getId(), rt), current.getId(), rt);
+        for (long authorFollower : followerList) {
+            graph.addVertex(authorFollower);
+            graph.addEdge(new Pair<Long>(current.getId(), authorFollower), current.getId(), authorFollower);
         }
-        for (User rter : rters) {
-            System.out.println("Rters size: " + rters.size());
-            System.out.println("Rter follow count: " + rter.getFollowersCount());
-            g.addVertex(rter.getId());
-            followerList = findFollowers(rter.getId());
-            for (long rt : followerList) {
-                g.addVertex(rt);
-                g.addEdge(new Pair<Long>(rter.getId(), rt), rter.getId(), rt);
+        for (User retweeter : retweeters) {
+            System.out.println("Method: getRtFollowerGraph. Retweeters size: " + retweeters.size());
+            System.out.println("Method: getRtFollowerGraph. Retweeter follow count: " + retweeter.getFollowersCount());
+            graph.addVertex(retweeter.getId());
+            followerList = findFollowers(retweeter.getId());
+            for (long follower : followerList) {
+                graph.addVertex(follower);
+                graph.addEdge(new Pair<Long>(retweeter.getId(), follower), retweeter.getId(), follower);
             }
         }
-        return g;
+        return graph;
     }
 
-    public static void printGraphForMCL(DirectedSparseGraph<Long, Pair<Long>> g, String filepath) {
-        try {
-            PrintWriter p = new PrintWriter(filepath);
-            if (g == null)
-                p.println("empty");
-            else {
-                for (Pair<Long> ed : g.getEdges()) {
-                    p.println(ed.getFirst() + " " + ed.getSecond());
-                }
+    public static void printGraphForMCL(DirectedSparseGraph<Long, Pair<Long>> graph, String filepath) throws FileNotFoundException {
+        PrintWriter p = new PrintWriter(filepath);
+        if (graph == null)
+            p.println("empty");
+        else {
+            for (Pair<Long> ed : graph.getEdges()) {
+                p.println(ed.getFirst() + " " + ed.getSecond());
             }
-            p.close();
-        } catch (FileNotFoundException e) {
-            System.out.println("ZB");
-            e.printStackTrace();
         }
+        p.close();
     }
 }
