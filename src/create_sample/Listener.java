@@ -9,12 +9,13 @@ import twitter4j.StatusListener;
 /**
  * Retrieves the tweets being streamed from the Streaming API.
  * 
- * @author JosÃ© Parada
+ * @author José Parada
  * @version 1.0
  */
 public class Listener implements StatusListener {
     private int count, maxCount;
     private LinkedList<Status> tweets;
+    private boolean error;
     
     /**
      * Constructor with an upper limit of <code>Integer.MAX_VALUE - 1</code> 
@@ -22,6 +23,7 @@ public class Listener implements StatusListener {
      */
     public Listener() {
         count = 0;
+        error = false;
         maxCount = Integer.MAX_VALUE - 1;
         tweets = new LinkedList<Status>();
     }
@@ -45,6 +47,15 @@ public class Listener implements StatusListener {
      */
     public boolean limitHit() {
         return (count >= maxCount);
+    }
+    
+    /**
+     * Returns whether an exception has occured or not.
+     * 
+     * @return True if an exception has occured, false otherwise.
+     */
+    public boolean getError() {
+    	return error;
     }
 
     /**
