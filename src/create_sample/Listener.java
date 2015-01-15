@@ -9,7 +9,7 @@ import twitter4j.StatusListener;
 /**
  * Retrieves the tweets being streamed from the Streaming API.
  * 
- * @author José Parada
+ * @author JosÃ© Parada
  * @version 1.0
  */
 public class Listener implements StatusListener {

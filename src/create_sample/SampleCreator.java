@@ -43,7 +43,13 @@ import twitter4j.conf.ConfigurationBuilder;
 import edu.uci.ics.jung.graph.DirectedSparseGraph;
 import edu.uci.ics.jung.graph.util.Pair;
 
-public class SampleCreator {
+/**
+ * Downloads tweets and creates the sample that will train and test the classifiers. 
+ * 
+ * @author José Parada
+ * @version 1.0
+ */
+public final class SampleCreator {
 
     private static final int MAX_STREAMED = 18000; // 18000 max due to status lookup rate limit
     private static final int MAX_CYCLES = 6;
@@ -85,7 +91,25 @@ public class SampleCreator {
     private static int findFollowersRate = 0, getRetweetsRate = 0, secondsStreamed = 0;
     private static Twitter twitter, userAuth, appAuth;
     private static PriorityQueue<Long> checkedRetweetedTweets = new PriorityQueue<Long>();
-
+    
+    /**
+     * Downloads a large sample of tweets from the Streaming API every 15 minutes, keeps track of these tweets over 
+     * time, and prints them into a text file so the classifiers can read it. 
+     * 
+     * After establishing a connection to Twitter using the credentials found in twitter4j.properties, a sample of 
+     * tweets is downloaded every 15 minutes. The tweets that get a certain amount of retweets in the first 15 minutes
+     * since being written are put in a monitor using the MonitoredStatus class, and their characteristics are updated 
+     * every 15 minutes. After a certain number of cycles, the monitors are stored in text files, their files for MCL 
+     * clustering are created and the depth of their diffusion trees is set. Finally, the monitor gets printed into a 
+     * text file our Python scripts will read to feed the classifiers.
+     * 
+     * @param args Unused.
+     * @throws ClassNotFoundException
+     * @throws InterruptedException
+     * @throws IOException
+     * @throws TwitterException
+     * @see MonitoredStatus
+     */
     public static void main(String[] args) throws ClassNotFoundException, InterruptedException, IOException, TwitterException {
         // Don't want the Twitter4J logger cluttering up the console
         System.setProperty("twitter4j.loggerFactory", "twitter4j.NullLoggerFactory");
@@ -95,7 +119,6 @@ public class SampleCreator {
             twitter = connectionSetup();
         } catch (TwitterException e) {
             System.out.println("Fatal: Could not connect to Twitter.");
-            e.printStackTrace();
             throw e;
         }
         
@@ -113,11 +136,9 @@ public class SampleCreator {
             topicClassifier = new TopicClassifier(SAVED_TOPIC_CLASSIFIER);
         } catch (ClassNotFoundException e) {
             System.out.println("Fatal: Topic or sentiment classifier files did not contain a valid classifier.");
-            e.printStackTrace();
             throw e;
         } catch (IOException e) {
             System.out.println("Fatal: Could not read topic or sentiment classifier file.");
-            e.printStackTrace();
             throw e;
         }
 
@@ -131,7 +152,6 @@ public class SampleCreator {
                 addSampleToMonitor(monitor, newSample, sentimentClassifier, topicClassifier);
             } catch (TwitterException e) {
                 System.out.println("Fatal: Status Lookup failed.");
-                e.printStackTrace();
                 throw e;
             }
 
@@ -142,7 +162,6 @@ public class SampleCreator {
             	newSample = streamTweets(MAX_STREAMED);
             } catch (InterruptedException e) {
                 System.out.println("Fatal: Stream sleep interrupted.");
-                e.printStackTrace();
                 throw e;
             }
 
@@ -150,7 +169,6 @@ public class SampleCreator {
             	saveMonitorProgress(monitor, dead);
             } catch (IOException e) {
             	System.out.println("Fatal: Could not write to monitor progress files.");
-            	e.printStackTrace();
             	throw e;
             }
 
@@ -172,7 +190,6 @@ public class SampleCreator {
                     getRetweetsRate = 0;
                 } catch (InterruptedException e) {
                     System.out.println("Fatal: Rate limit refresh sleep interrupted.");
-                    e.printStackTrace();
                     throw e;
                 }
             }
@@ -188,25 +205,23 @@ public class SampleCreator {
         	saveFinalMonitors(orderedMonitor, orderedDead);
         } catch (IOException e) {
         	System.out.println("Fatal: Could not write to monitor final files.");
-        	e.printStackTrace();
         	throw e;
         }
-        
+        /*
         // Make files for clustering and calculate diffusion graphs
+        LinkedList<MonitoredStatus> orderedDead = readMonitorFinalFile(DEAD_MONITOR_FINAL);
         try {
         	System.out.println("Starting cluster files.");
         	startFilesForClustering(orderedDead, CLUSTER_DIR);
         	System.out.println("Cluster files finished.");
         } catch (InterruptedException e) {
         	System.out.println("Fatal: Sleep to refresh findFollowers interrupted.");
-        	e.printStackTrace();
         	throw e;
         } catch (IOException e) {
         	System.out.println("Fatal: Could not write to cluster files.");
-        	e.printStackTrace();
         	throw e;
         }
-        
+        */
         try {
         	System.out.println("Starting diffusion depths.");
         	startDiffusionTreeDepths(orderedDead);
@@ -215,11 +230,9 @@ public class SampleCreator {
         	printMonitorToFile(orderedDead, PRINTED_DEAD_MONITOR_FINAL);
         } catch (InterruptedException e) {
         	System.out.println("Fatal: Sleep to refresh findFollowers interrupted.");
-        	e.printStackTrace();
         	throw e;
         } catch (IOException e) {
         	System.out.println("Fatal: Could not access diffusion files.");
-        	e.printStackTrace();
         	throw e;
         }
 
@@ -229,21 +242,30 @@ public class SampleCreator {
         	System.out.println("Sample for classifiers finished.");
         } catch (ClassNotFoundException e) {
         	System.out.println("Fatal: Monitor file to convert for classifiers did not contain a valid monitor.");
-        	e.printStackTrace();
         	throw e;
         } catch (FileNotFoundException e) {
         	System.out.println("Fatal: Could not find monitor file to convert for classifiers.");
-        	e.printStackTrace();
         	throw e;
         } catch (IOException e) {
         	System.out.println("Fatal: Could not access monitor file to convert for classifiers.");
-        	e.printStackTrace();
         	throw e;
         }
         
         System.out.println("Finished.");
     }
     
+    /**
+     * Private constructor since this is a static class.
+     */
+    private SampleCreator() { }
+    
+    /**
+     * Establishes the connection to Twitter and sets our two authorization methods so that other methods can access
+     * the Twitter API.
+     * 
+     * @return The user authorization object, which is the first we need to use in the main method.
+     * @throws TwitterException
+     */
     private static Twitter connectionSetup() throws TwitterException {
         userAuth = TwitterFactory.getSingleton();
         ConfigurationBuilder builder;
@@ -254,6 +276,13 @@ public class SampleCreator {
         return userAuth;
     }
     
+    /**
+     * Updates our two monitors. One is updated every 15 minutes with all of its tweet's characteristics, the other 
+     * saves our tweets once they've stopped getting retweets.
+     * 
+     * @param monitor A set of monitored tweets that are still getting retweets.
+     * @param dead A set of monitored tweets that are no longer getting retweets.
+     */
     private static void updateMonitor(HashSet<MonitoredStatus> monitor, HashSet<MonitoredStatus> dead) {
         MonitoredStatus tweet;
         Status updated;
@@ -279,6 +308,16 @@ public class SampleCreator {
         }
     }
     
+    /**
+     * Checks the tweets that were streamed, and, if they have a certain amount of retweets, adds them to the monitor.
+     * This method ignores all streamed tweets that were actually retweets.
+     * 
+     * @param monitor A set of monitored tweets.
+     * @param newSample A list of tweets streamed from Twitter's Streaming API.
+     * @param sentimentClassifier A sentiment classifier, for classifying the tweet text's sentiment.
+     * @param topicClassifier A topic classifier, for classifying the tweet text's topic.
+     * @throws TwitterException
+     */
     private static void addSampleToMonitor(HashSet<MonitoredStatus> monitor, LinkedList<Status> newSample, 
             SentimentClassifier sentimentClassifier, TopicClassifier topicClassifier) throws TwitterException {
         long[] ids;
@@ -329,6 +368,16 @@ public class SampleCreator {
         }
     }
     
+    /**
+     * Checks the tweets that were streamed, and, if they have a certain amount of retweets, adds them to the monitor.
+     * This method also adds to the monitor the original tweet corresponding to any retweet in the sample.
+     * 
+     * @param monitor A set of monitored tweets.
+     * @param newSample A list of tweets streamed from Twitter's Streaming API.
+     * @param sentimentClassifier A sentiment classifier, for classifying the tweet text's sentiment.
+     * @param topicClassifier A topic classifier, for classifying the tweet text's topic.
+     * @throws TwitterException
+     */
     @SuppressWarnings("unused")
     private static void addSampleToMonitorWithRetweets(HashSet<MonitoredStatus> monitor, LinkedList<Status> newSample, 
             SentimentClassifier sentimentClassifier, TopicClassifier topicClassifier) throws TwitterException {
@@ -399,6 +448,12 @@ public class SampleCreator {
         }
     }
     
+    /**
+     * Prints the monitors' tweets to console.
+     * 
+     * @param monitor A set of monitored tweets that are still getting retweets.
+     * @param dead A set of monitored tweets that are no longer getting retweets.
+     */
     private static final void printMonitors(HashSet<MonitoredStatus> monitor, HashSet<MonitoredStatus> dead) {
         int tweetNumber = 1;
         System.out.println("Printing monitors.");
@@ -420,6 +475,15 @@ public class SampleCreator {
         System.out.println("Finished printing monitors.");
     }
     
+    /**
+     * Reads a monitor stored in a progress file. Monitor progress files are generated each monitor loop so that 
+     * monitoring can resume where it left off in case of fatal failure.
+     * 
+     * @param file The monitor progress file.
+     * @return The monitor stored in the file.
+     * @throws ClassNotFoundException
+     * @throws IOException
+     */
     @SuppressWarnings("unused")
     private static HashSet<MonitoredStatus> readMonitorProgressFile(File file) throws ClassNotFoundException, IOException {
         ObjectInputStream input = new ObjectInputStream(new BufferedInputStream(new FileInputStream(file)));
@@ -429,6 +493,15 @@ public class SampleCreator {
         return monitor;
     }
     
+    /**
+     * Reads a monitor stored in a final file. Monitor final files are generated when the monitor has finished its
+     * appointed cycles, so that other methods can use the data gathered.
+     * 
+     * @param file The monitor final file.
+     * @return The monitor stored in the file.
+     * @throws ClassNotFoundException
+     * @throws IOException
+     */
     @SuppressWarnings("unused")
     private static LinkedList<MonitoredStatus> readMonitorFinalFile(File file) throws ClassNotFoundException, IOException {
         ObjectInputStream input = new ObjectInputStream(new BufferedInputStream(new FileInputStream(file)));
@@ -438,18 +511,36 @@ public class SampleCreator {
         return monitor;
     }
 
-    /* Prints sample.
-     * Row 0: 0:RetweetCount, 1:Clusters, 2:TreeLength, 3:AuthorsFollowers, 4:isDirect, 5:isMention, 6:isExclamation, 7:isHashtag, 8:isNegativeE, 9:isPositiveE,
-     * 10:isQuestion, 11:isUrl, 12:Sentiment, 13:Topic, 14:TotalViews, 15:FollowerAverage, 16:MaxFollowers, 17:RowSize
-     * Row 1: Retweet number history
-     * Row 2: Retweet number delta
-     * Row 3: Retweet likelihood history
-     * Row 4: Retweet likelihood delta
-     * Row 5: TotalViews history
-     * Row 6: TotalViews delta
-     * Row 7: FollowerAverage history
-     * Row 8: FollowerAverage delta
-     */ 
+    /**
+     * Prints monitor to a text file so the classifiers can read them. The following is a list of all the tweet's values
+     * that are printed, separated by a space.
+     * <ul>
+     * <li> Row 1: 0: Retweet amount. 1: Number of clusters. 2: Diffusion tree length. 3: Author's follower amount. 
+     * 4: Whether it's a direct mention. 5: Whether it's a mention. 6: Whether it has an exclamantion mark. 7: Whether it
+     * has a hashtag. 8: Whether it has a negative emoticon. 9: Whether it has a positive emoticon. 10: Whether it has a 
+     * question mark. 11: Whether it has a URL. 12: Sentiment. 13: Topic. 14: Total views. 15: Retweeter's follower amount 
+     * average. 16: Retweeter's maximum follower amount. 17: Amount of periods monitored.
+     * <li> Row 2: The number of retweets this tweet had every 15 minutes.
+     * <li> Row 3: The difference in the number of retweets this tweet had every 15 minutes.
+     * <li> Row 4: The probability of being retweeted this tweet had every 15 minutes.
+     * <li> Row 5: The difference in the probability of being retweeted this tweet had every 15 
+     * minutes.
+     * <li> Row 6: The number of views this tweet had every 15 minutes.
+     * <li> Row 7: The difference in the number of views this tweet had every 15 minutes.
+     * <li> Row 8: The average of the number of followers of this tweet's retweeters every 15 minutes.
+     * <li> Row 9: The difference in the average of the number of followers this tweet's retweeters 
+     * had every 15 minutes.
+     * </ul>
+     * Where we consider views to be the amount of people that had this tweet shown in their timeline.
+     * 
+     * @param monitor A list of tweets that were monitored.
+     * @param clusterDirPath The directory where the clustering output files of each tweet are stored.
+     * @throws ClassNotFoundException
+     * @throws FileNotFoundException
+     * @throws IOException
+     * @see #followerStats
+     * @see MonitoredStatus
+     */
     private static void makeSampleForClassifiers(LinkedList<MonitoredStatus> monitor, String clusterDirPath) throws ClassNotFoundException, FileNotFoundException, IOException {
         LinkedList<double[]> statList;
         double[] followerStats;
@@ -479,6 +570,32 @@ public class SampleCreator {
         output.close();
     }
 
+    /**
+     * Returns a list of several characteristics of a tweet's retweet history. The following is a list of the
+     * characteristics that are returned.
+     * <ul>
+     * <li> Element 1: Array with the following elements: 0: Total views a tweet had. 1: The average number of 
+     * followers this tweet's retweeters had. 2: The number of followers the retweeter with the largest amount of
+     * followers had.
+     * <li> Element 2: An array with the number of retweets this tweet had every 15 minutes.
+     * <li> Element 3: An array with the difference in the number of retweets this tweet had every 15 minutes.
+     * <li> Element 4: An array with the probability of being retweeted this tweet had every 15 minutes.
+     * <li> Element 5: An array with the difference in the probability of being retweeted this tweet had every 15 
+     * minutes.
+     * <li> Element 6: An array with the number of views this tweet had every 15 minutes.
+     * <li> Element 7: An array with the difference in the number of views this tweet had every 15 minutes.
+     * <li> Element 8: An array with the average of the number of followers of this tweet's retweeters every 15 minutes.
+     * <li> Element 9: An array with the difference in the average of the number of followers this tweet's retweeters 
+     * had every 15 minutes.
+     * </ul>
+     * Where we consider views to be the amount of people that had this tweet shown in their timeline.
+     * 
+     * @param users
+     * @param retweets
+     * @param likelihood
+     * @param authorFollowers
+     * @return A list with several statistics of a tweet's retweet history.
+     */
     private static LinkedList<double[]> followerStats(HashSet<User> users, LinkedList<Integer> retweets, LinkedList<Double> likelihood, int authorFollowers) {
         LinkedList<double[]> result = new LinkedList<double[]>();
         double finalStats[] = new double[3], retweetHistory[] = new double[retweets.size()], retweetDelta[] = new double[retweets.size()], 
@@ -532,6 +649,12 @@ public class SampleCreator {
         return result;
     }
 
+    /**
+     * Reads the amount of clusters MCL found among a tweet's retweeters from an MCL output file.
+     * 
+     * @param path The path of the MCL output file.
+     * @return The amount of clusters MCL found among the tweet's retweeters.
+     */
     private static int readClusters(String path) {
         try {
             BufferedReader input = new BufferedReader(new InputStreamReader(new FileInputStream(path)));
@@ -548,6 +671,17 @@ public class SampleCreator {
         }
     }
 
+    /**
+     * Creates the MCL input files to find the number of clusters a tweet's retweeters form.
+     * 
+     * @param originalMonitor The monitor with the tweets for which we'll create the files.
+     * @param dir The name of the directory where the MCL files will be placed.
+     * @param startNumber The tweet monitor number we're starting from. Used in case a fatal error occurs and we want
+     * to resume making the MCL files where we left off.
+     * @throws InterruptedException
+     * @throws IOException
+     * @see #getRetweeterFollowerGraph(User, HashSet)
+     */
     private static void makeFilesForClustering(LinkedList<MonitoredStatus> originalMonitor, String dir, int startNumber) throws InterruptedException, IOException {	
         Status updatedTweet;
         User updatedUser;
@@ -581,10 +715,31 @@ public class SampleCreator {
         }
     }
     
+    /**
+     * Runs <code>makeFilesForClustering</code> on a complete monitor.
+     * 
+     * @param monitor The monitor with the tweets for which we'll create the files.
+     * @param dir The name of the directory where the MCL files will be placed.
+     * @throws InterruptedException
+     * @throws IOException
+     * @see #makeFilesForClustering(LinkedList, String, int)
+     */
+    @SuppressWarnings("unused")
     private static void startFilesForClustering(LinkedList<MonitoredStatus> monitor, String dir) throws InterruptedException, IOException {
         makeFilesForClustering(monitor, dir, 0);
     }
     
+    /**
+     * Runs <code>makeFilesForClustering</code> on a monitor that we have started to create these files for. Used in case a fatal 
+     * error occurs and we want to resume making the MCL files where we left off. The monitor and tweet number are
+     * stored in text files during <code>makeFilesForClustering</code> execution.
+     * 
+     * @param dir The name of the directory where the MCL files will be placed.
+     * @throws InterruptedException
+     * @throws IOException
+     * @throws ClassNotFoundException
+     * @see #makeFilesForClustering(LinkedList, String, int)
+     */
     @SuppressWarnings("unused")
     private static void continueFilesForClustering(String dir) throws InterruptedException, IOException, ClassNotFoundException {
         ObjectInputStream input = new ObjectInputStream(new BufferedInputStream(new FileInputStream(CLUSTERING_PROGRESS)));
@@ -597,19 +752,28 @@ public class SampleCreator {
         makeFilesForClustering(monitor, dir, tweetNumber);
     }
 
+    /**
+     * Finds and sets the diffusion tree depths for a monitor's tweets.
+     * 
+     * @param monitor The monitor with the tweets for which we'll set the diffusion tree depth.
+     * @param startNumber The tweet monitor number we're starting from. Used in case a fatal error occurs and we want
+     * to resume setting tree depths where we left off.
+     * @throws InterruptedException
+     * @throws IOException
+     * @see #makeDiffusionGraph(MonitoredStatus)
+     */
     private static void setDiffusionTreeDepths(LinkedList<MonitoredStatus> monitor, int startNumber) throws InterruptedException, IOException {
         int tweetNumber = startNumber;
         Iterator<MonitoredStatus> iMonitor = monitor.iterator();
         MonitoredStatus tweet;
         while (iMonitor.hasNext()) {
             tweet = iMonitor.next();
-            System.out.println(tweetNumber);
-            System.out.println(tweet.getRetweetCount().peekLast());
             if (tweet.getRetweetCount().peekLast() != 0) {
             	try {
             		makeDiffusionGraph(tweet);
             	} catch (TwitterException e) {
             		System.out.println("Method: setDiffusionTreeDepths. Tweet no longer exists. Setting tree depth to 0.");
+            		System.out.println(tweet);
             		tweet.setTreeDepth(0);
             	}
             } else {
@@ -623,10 +787,28 @@ public class SampleCreator {
         }   
     }
     
+    /**
+     * Runs <code>setDiffusionTreeDepths</code> on a complete monitor.
+     * 
+     * @param monitor The monitor with the tweets for which we'll set the diffusion tree depth.
+     * @throws InterruptedException
+     * @throws IOException
+     * @see #setDiffusionTreeDepths(LinkedList, int)
+     */
     private static void startDiffusionTreeDepths(LinkedList<MonitoredStatus> monitor) throws InterruptedException, IOException {
         setDiffusionTreeDepths(monitor, 0);
     }
     
+    /**
+     * Runs <code>setDiffusionTreeDepths</code> on a monitor that we have started to set depths for. Used in case a fatal 
+     * error occurs and we want to resume setting tree depths where we left off. The monitor and tweet number are
+     * stored in text files during <code>setDiffusionTreeDepths</code> execution.
+     * 
+     * @throws InterruptedException
+     * @throws IOException
+     * @throws ClassNotFoundException
+     * @see #setDiffusionTreeDepths(LinkedList, int)
+     */
     @SuppressWarnings("unused")
     private static void continueDiffusionTreeDepths() throws InterruptedException, IOException, ClassNotFoundException {
         ObjectInputStream input = new ObjectInputStream(new BufferedInputStream(new FileInputStream(DIFFUSION_PROGRESS)));
@@ -639,6 +821,13 @@ public class SampleCreator {
         setDiffusionTreeDepths(monitor, tweetNumber);
     }
 
+    /**
+     * Check if a string contains any of the strings in an array.
+     * 
+     * @param string The string which may contain a string in the array.
+     * @param strings The array with the strings that may be contained in the string.
+     * @return True if the string contains any of the strings in the array, false otherwise.
+     */
     private static boolean containsArray(String string, String[] strings) {
         for (int i = 0; i < strings.length; i++)
             if (string.contains(strings[i]))
@@ -646,6 +835,14 @@ public class SampleCreator {
         return false;
     }
 
+    /**
+     * Saves both monitors to text files, to be loaded in case a fatal error occurs and we want to resume monitoring 
+     * where we left off.
+     * 
+     * @param monitor A set of monitored tweets that are still getting retweets.
+     * @param dead A set of monitored tweets that are no longer getting retweets.
+     * @throws IOException
+     */
     private static void saveMonitorProgress(HashSet<MonitoredStatus> monitor, HashSet<MonitoredStatus> dead) throws IOException {
         System.out.println("Saving monitor progress.");
         saveObjectToFile(monitor, MONITOR_PROGRESS);
@@ -655,6 +852,13 @@ public class SampleCreator {
         System.out.println("Progress has been saved.");
     }
 
+    /**
+     * Saves both monitors to text files once the monitoring period has finished.
+     * 
+     * @param monitor A list of monitored tweets that are still getting retweets.
+     * @param dead A list of monitored tweets that are no longer getting retweets.
+     * @throws IOException
+     */
     private static void saveFinalMonitors(LinkedList<MonitoredStatus> monitor, LinkedList<MonitoredStatus> dead) throws IOException {
         System.out.println("Saving final monitors.");
         saveObjectToFile(monitor, MONITOR_FINAL);
@@ -664,6 +868,12 @@ public class SampleCreator {
         System.out.println("Final monitors have been saved.");
     }
     
+    /**
+     * Turns a set into a linked list. Used to preserve the order of a monitor's tweets once monitoring has finished.
+     * 
+     * @param set The set to be turned into a linked list.
+     * @return A linked list which contains the elements of the set.
+     */
     private static <T> LinkedList<T> turnSetIntoLinkedList(Set<T> set) {
         LinkedList<T> list = new LinkedList<T>();
         for (T element : set)
@@ -671,12 +881,26 @@ public class SampleCreator {
         return list;
     }
     
+    /**
+     * Saves a serializable object to a text file.
+     * 
+     * @param obj The serializable object to be saved.
+     * @param file The file where we want to save the object.
+     * @throws IOException
+     */
     private static void saveObjectToFile(Serializable obj, File file) throws IOException {
         ObjectOutputStream output = new ObjectOutputStream(new BufferedOutputStream(new FileOutputStream(file)));
         output.writeObject(obj);
         output.close();
     }
     
+    /**
+     * Prints all of a monitor's tweets to a text file.
+     * 
+     * @param monitor The monitor which has the tweets we'll print.
+     * @param file The file where the tweets will be printed.
+     * @throws IOException
+     */
     private static void printMonitorToFile(Iterable<MonitoredStatus> monitor, File file) throws IOException {
         PrintWriter writer = new PrintWriter(new BufferedWriter(new FileWriter(file)));
         writer.println(new Date());
@@ -689,6 +913,13 @@ public class SampleCreator {
         }
     }
 
+    /**
+     * Streams a list of tweets from Twitter's Streaming API.
+     * 
+     * @param count The amount of tweets we want streamed.
+     * @return A list of all the tweets that were streamed.
+     * @throws InterruptedException
+     */
     private static LinkedList<Status> streamTweets(int count) throws InterruptedException {
         TwitterStream stream;
         Listener listener;
@@ -716,6 +947,11 @@ public class SampleCreator {
         return listener.getTweets();
     }
 
+    /**
+     * Sets whether to use user authorization or app authorization for Twitter's API.
+     * 
+     * @param auth True if we want to use user authorization, false if we want app authorization.
+     */
     private static void setUserAuth(boolean auth) {
         if (auth)
             twitter = userAuth;
@@ -723,6 +959,17 @@ public class SampleCreator {
             twitter = appAuth;
     }
 
+    /**
+     * Creates a tweet's diffusion graph, and sets its depth on the <code>MonitoredStatus</code>. We consider a tweet's diffusion graph to be 
+     * a graph where the nodes are all of a tweet's retweeters, and an edge goes from node A to node B if user A 
+     * retweeted the tweet and user B follows user A and retweeted the tweet as well. We consider the depth of the
+     * graph to be the largest distance from the author to any node in the graph.
+     * 
+     * @param tweet The tweet for which we'll create the diffusion graph.
+     * @return The diffusion graph.
+     * @throws InterruptedException
+     * @throws TwitterException
+     */
     private static DirectedSparseGraph<Long, Pair<Long>> makeDiffusionGraph(MonitoredStatus tweet) throws InterruptedException, TwitterException {
         int i = 0, treeSize = 0;
         long[] retweeters = new long[tweet.getRetweeters().size()];
@@ -770,11 +1017,19 @@ public class SampleCreator {
         return graph;
     }
     
-    private static double getRetweetLikelihood(Status status, List<User> retweeters) {
+    /**
+     * Calculates a tweet's retweet likelihood. The likelihood is calculated as the number of retweets divided by the 
+     * number of views, where we consider views to be the amount of timelines this tweet has appeared in.
+     * 
+     * @param tweet The tweet we'll calculate the likelihood for.
+     * @param retweeters The list of users that have retweeted the tweet.
+     * @return The tweet's retweet likelihood.
+     */
+    private static double getRetweetLikelihood(Status tweet, List<User> retweeters) {
         if (!retweeters.isEmpty()) {
             int totalFollowers;
-            if (status.getRetweetCount() == retweeters.size())
-                totalFollowers = status.getUser().getFollowersCount();
+            if (tweet.getRetweetCount() == retweeters.size())
+                totalFollowers = tweet.getUser().getFollowersCount();
             else
                 totalFollowers = 0;
             for (User retweeter : retweeters) {
@@ -789,6 +1044,18 @@ public class SampleCreator {
         }
     }
 
+    /**
+     * Creates a graph where the nodes are a tweet's author, its retweeters, and their followers, and the edges represent
+     * who follows who. We use MCL to cluster these graphs, and the amount of clusters is one of the tweet's 
+     * characteristics we use to train our classifiers.
+     * 
+     * @param author The tweet's author.
+     * @param retweeters The tweet's retweeters.
+     * @return A graph where the nodes are a tweet's author, its retweeters, and their followers, and the edges 
+     * represent who follows who.
+     * @throws InterruptedException
+     * @throws TwitterException
+     */
     private static DirectedSparseGraph<Long, Pair<Long>> getRetweeterFollowerGraph(User author, HashSet<User> retweeters) throws InterruptedException, TwitterException {
         DirectedSparseGraph<Long, Pair<Long>> graph = new DirectedSparseGraph<Long, Pair<Long>>();
         LinkedList<Long> followerList = new LinkedList<Long>();
@@ -800,8 +1067,8 @@ public class SampleCreator {
             graph.addEdge(new Pair<Long>(current.getId(), authorFollower), current.getId(), authorFollower);
         }
         for (User retweeter : retweeters) {
-            System.out.println("Method: getRetweeterFollowerGraph. Retweeters size: " + retweeters.size());
-            System.out.println("Method: getRetweeterFollowerGraph. Retweeter follow count: " + retweeter.getFollowersCount());
+            /*System.out.println("Method: getRetweeterFollowerGraph. Retweeters size: " + retweeters.size());
+            System.out.println("Method: getRetweeterFollowerGraph. Retweeter follow count: " + retweeter.getFollowersCount());*/
             graph.addVertex(retweeter.getId());
             followerList = findFollowers(retweeter.getId());
             for (long follower : followerList) {
@@ -812,6 +1079,13 @@ public class SampleCreator {
         return graph;
     }
 
+    /**
+     * Prints a graph to a file in a format MCL can read.
+     * 
+     * @param graph The graph to be printed.
+     * @param filepath The path of the file we'll print the graph to.
+     * @throws FileNotFoundException
+     */
     private static void printGraphForMCL(DirectedSparseGraph<Long, Pair<Long>> graph, String filepath) throws FileNotFoundException {
         PrintWriter p = new PrintWriter(filepath);
         if (graph == null)
@@ -824,6 +1098,13 @@ public class SampleCreator {
         p.close();
     }
     
+    /**
+     * Find some of the last users that have retweeted a given tweet.
+     * 
+     * @param status The tweet we want to find the retweeters for.
+     * @param retweeterCount The maximum amount of retweeters to check back a tweet's retweet history for.
+     * @return A list of the last <code>retweeterCount</code> users or less that retweeted the tweet.
+     */
     private static List<User> getSomeRetweeters(Status status, int retweeterCount) {
         Twitter auth;
         boolean limit;
@@ -842,7 +1123,7 @@ public class SampleCreator {
         }
         if (retweeterCount < 0)
             retweeterCount = 0;
-        if (!limit) {
+        if (!limit) { // If calls to getRetweets haven't been exhausted, use getRetweets.
             try {
                 List<Status> statuses = auth.getRetweets(status.getId());
                 getRetweetsRate++;
@@ -859,7 +1140,7 @@ public class SampleCreator {
                 System.out.println("Method: getSomeRetweeters. No retweeters for this user.");
                 return new LinkedList<User>();
             }
-        } else {
+        } else { // If calls to getRetweets have been exhausted, use getRetweeterIds.
             try {
                 long[] statuses = auth.getRetweeterIds(status.getId(), -1l).getIDs();
                 getRetweetsRate++;
@@ -875,8 +1156,13 @@ public class SampleCreator {
         }
     }
     
+    /**
+     * Resets the connection to Twitter, and sleeps 15 minutes to refresh the API method rates.
+     * 
+     * @throws InterruptedException
+     * @throws TwitterException
+     */
     private static void reconnect() throws InterruptedException, TwitterException {
-        System.setProperty("twitter4j.loggerFactory", "twitter4j.NullLoggerFactory");
         findFollowersRate = 0;
         getRetweetsRate = 0;
         connectionSetup();
@@ -885,6 +1171,14 @@ public class SampleCreator {
         Thread.sleep(FIFTEEN_MINUTES);
     }
 
+    /**
+     * Finds a list of an user's first 150000 followers.
+     * 
+     * @param userID The Twitter ID of an user we want the followers of.
+     * @return A list with the user's first 150000 followers.
+     * @throws InterruptedException
+     * @throws TwitterException
+     */
     private static LinkedList<Long> findFollowers(long userID) throws InterruptedException, TwitterException {
         long cursor = -1;
         IDs followerIDs;
@@ -922,10 +1216,17 @@ public class SampleCreator {
                     localFindFollowersRate--;
                 }
             }
-        } while ((cursor != 0) && (localFindFollowersRate < 30));
+        } while ((cursor != 0) && (localFindFollowersRate < (GET_FOLLOWERS_USER_LIMIT + GET_FOLLOWERS_APP_LIMIT)));
         return followerIDList;
     }
 
+    /**
+     * Prints a graph to a file in a format that can be read by GraphViz. Currently unused.
+     * 
+     * @param g The graph to be printed.
+     * @param file The file we'll print the graph to.
+     * @throws FileNotFoundException
+     */
     @SuppressWarnings("unused")
     private static void drawGraphForGraphViz(DirectedSparseGraph<Long, Pair<Long>> g, File file) throws FileNotFoundException {
         Collection<Pair<Long>> s = g.getEdges();
@@ -939,6 +1240,13 @@ public class SampleCreator {
         p.close();
     }
 
+    /**
+     * Gets an array with a tweet's last 100 retweeters' user IDs. Currently unused.
+     * 
+     * @param status The tweet we want the last 100 retweeters of.
+     * @return An array with the tweet's last 100 retweeters' user IDs.
+     * @throws TwitterException
+     */
     @SuppressWarnings("unused")
     private static long[] getRetweeters(Status status) throws TwitterException {
 		List<Status> statuses = twitter.getRetweets(status.getId());
@@ -951,7 +1259,14 @@ public class SampleCreator {
 		return ids;
 	}
 
-    //sUntil format: YYYY-MM-DD
+    /**
+     * Searches tweets posted before a certain date using Twitter's search engine. Currently unused.
+     * 
+     * @param sQuery The query we'll search for in Twitter's search engine.
+     * @param sUntil The date before which we'll search. Format: YYYY-MM-DD.
+     * @return A list of tweets related to the query searched.
+     * @throws TwitterException
+     */
     @SuppressWarnings("unused")
     private static List<Status> searchTweetsUntil(String sQuery, String sUntil) throws TwitterException {
         Query query = new Query(sQuery);
@@ -964,7 +1279,14 @@ public class SampleCreator {
         return result.getTweets();
     }
 
-    //dSince format: YYYY-MM-DD
+    /**
+     * Returns all of an user's tweets since a certain date. Currently unusued.
+     * 
+     * @param user The author whose tweets we want to find.
+     * @param dSince The date after which we'll search. Format: YYYY-MM-DD.
+     * @return A list of tweets posted by the user since the date given.
+     * @throws TwitterException
+     */
     @SuppressWarnings("unused")
     private static List<Status> getTimelineSince(String user, Date dSince) throws TwitterException {
         List<Status> statuses, statuseses;
@@ -986,6 +1308,13 @@ public class SampleCreator {
         return statuseses;
     }
 
+    /**
+     * Returns all of an user's tweets. Currently unused.
+     * 
+     * @param user The author whose tweets we want to find.
+     * @return A list of all the user's posted tweets.
+     * @throws TwitterException
+     */
     @SuppressWarnings("unused")
 	private static List<Status> getEntireTimeline(String user) throws TwitterException {
         List<Status> statuses, statuseses;
@@ -1007,6 +1336,13 @@ public class SampleCreator {
         return statuseses;
     }
 
+    /**
+     * Get the last 20 tweets posted by a certain user. Currently unused.
+     * 
+     * @param user The author whose tweets we want to find.
+     * @return A list of the last 20 tweets posted by the given user.
+     * @throws TwitterException
+     */
     @SuppressWarnings("unused")
     private static List<Status> getFirstPageTimeline(String user) throws TwitterException {
         List<Status> statuses;
@@ -1015,11 +1351,25 @@ public class SampleCreator {
         return statuses;
     }
 
+    /**
+     * Returns a user's user ID. Currently unused.
+     * 
+     * @param username The username of the user whose ID we'll get.
+     * @return The ID of the user.
+     * @throws TwitterException
+     */
     @SuppressWarnings("unused")
     private static long getIdFromUsername(String username) throws TwitterException {
         return twitter.showUser(username).getId();
     }
 
+    /**
+     * Returns a user's username. Currently unused.
+     * 
+     * @param id The user ID of the user whose username we'll get.
+     * @return The username of the user.
+     * @throws TwitterException
+     */
     @SuppressWarnings("unused")
     private static String getUsernameFromId(long id) throws TwitterException {
         return twitter.showUser(id).getScreenName();

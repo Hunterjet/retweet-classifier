@@ -3,6 +3,7 @@ package create_sample;
 import java.io.BufferedWriter;
 import java.io.File;
 import java.io.FileWriter;
+import java.io.IOException;
 import java.io.PrintWriter;
 import java.io.Serializable;
 import java.util.Date;
@@ -466,47 +467,44 @@ public class MonitoredStatus implements Serializable {
      * Prints to a file most of this tweet's characteristics.
      * 
      * @param file The file to print to.
+     * @throws IOException
      */
-    public void printToFile(File file) {
-        try { 
-            PrintWriter writer = new PrintWriter(new BufferedWriter(new FileWriter(file, true)));
-            writer.println("ID = " + id);
-            writer.println("Text = " + text);
-            writer.println("Created at = " + tweetCreated);
-            writer.println("Started monitoring at = " + startedMonitoring);
-            writer.print("RetweetCount: ");
-            for (int rtc : retweetCount) {
-                writer.print(rtc + ", ");
-            }
-            writer.println();
-            
-            writer.print("RetweetLikelihood: ");
-            for (double rtl : retweetLikelihood) {
-                writer.print(rtl + ", ");
-            }
-            writer.println();
-            writer.print("Combined: ");
-            for (double rtl : combined) {
-                writer.print(rtl + ", ");
-            }
-            writer.println();
-            
-            writer.println("Is Direct: " + isDirect);
-            writer.println("Is Mention: " + hasMention);
-            writer.println("Is Hashtag: " + hasHashtag);
-            writer.println("Is URL: " + hasURL);
-            writer.println("Is Exclamation: " + isExclamation);
-            writer.println("Is Question: " + isQuestion);
-            writer.println("Sentiment: " + sentiment);
-            writer.println("Topic: " + topic);
-            writer.println("Is Emoticon Positive: " + hasPositiveEmoticon);
-            writer.println("Is Emoticon Negative: " + hasNegativeEmoticon);
-            writer.println("Author's followers: " + authorFollowerNumber);
-            writer.println();
-            writer.close();
-        } catch (Exception e) {
-            e.printStackTrace();
+    public void printToFile(File file) throws IOException {
+        PrintWriter writer = new PrintWriter(new BufferedWriter(new FileWriter(file, true)));
+        writer.println("ID = " + id);
+        writer.println("Text = " + text);
+        writer.println("Created at = " + tweetCreated);
+        writer.println("Started monitoring at = " + startedMonitoring);
+        writer.print("RetweetCount: ");
+        for (int rtc : retweetCount) {
+            writer.print(rtc + ", ");
         }
+        writer.println();
+        
+        writer.print("RetweetLikelihood: ");
+        for (double rtl : retweetLikelihood) {
+            writer.print(rtl + ", ");
+        }
+        writer.println();
+        writer.print("Combined: ");
+        for (double rtl : combined) {
+            writer.print(rtl + ", ");
+        }
+        writer.println();
+        
+        writer.println("Is Direct: " + isDirect);
+        writer.println("Is Mention: " + hasMention);
+        writer.println("Is Hashtag: " + hasHashtag);
+        writer.println("Is URL: " + hasURL);
+        writer.println("Is Exclamation: " + isExclamation);
+        writer.println("Is Question: " + isQuestion);
+        writer.println("Sentiment: " + sentiment);
+        writer.println("Topic: " + topic);
+        writer.println("Is Emoticon Positive: " + hasPositiveEmoticon);
+        writer.println("Is Emoticon Negative: " + hasNegativeEmoticon);
+        writer.println("Author's followers: " + authorFollowerNumber);
+        writer.println();
+        writer.close();
     }
 
     /**
