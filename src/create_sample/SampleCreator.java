@@ -52,7 +52,7 @@ import edu.uci.ics.jung.graph.util.Pair;
 public final class SampleCreator {
 
     private static final int MAX_STREAMED = 18000; // 18000 max due to status lookup rate limit
-    private static final int MAX_CYCLES = 6;
+    private static final int MAX_CYCLES = 40;
     private static final int MAX_LOOKUP_SIZE = 100; // Size of the Twitter API Status Lookup method response
     private static final int MIN_RETWEETS = 2; // Minimum amount of retweets necessary to monitor a tweet
     private static final int GET_FOLLOWERS_APP_LIMIT = 15; // Max amount of calls to getFollowersIDs in 15 minutes through app auth
@@ -70,7 +70,7 @@ public final class SampleCreator {
     // Amount of 15 minute blocks without retweets before tweet is delcared dead
     private static final int PERIODS_TO_DIE = 4; 
     private static final String[] POSITIVE_EMOTICONS = {":-)", ":)", ";)", ";-)", ":D", ":-D"};
-    private static final String[] NEGATIVE_EMOTICONS = {":(", ":-(", "D:", "D-:", ";_;"};
+    private static final String[] NEGATIVE_EMOTICONS = {":(", ":-(", "D:", "D-:", ";_;"}; 
     private static final File SAVED_SENTIMENT_CLASSIFIER = new File("SentimentClassifier.txt");
     private static final File SAVED_TOPIC_CLASSIFIER = new File("TopicClassifier.txt");
     private static final File MONITOR_PROGRESS = new File("MonitorProgress.ser");
