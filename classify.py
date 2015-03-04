@@ -31,6 +31,29 @@ TEST_SAMPLE = TEST_DIR + 'Test.sample'
 cols = ('#followers', 'isDirect', 'isMention', 'hasExclamation', 'hasHashtag', 
         'hasEmoticonNegative', 'hasEmoticonPositive', 'hasQuestion', 'hasURL', 
         'Sentiment')
+colsOneP = ('#followers', 'isDirect', 'isMention', 'hasExclamation', 'hasHashtag', 
+        'hasEmoticonNegative', 'hasEmoticonPositive', 'hasQuestion', 'hasURL', 
+        'SentimentNegative', 'SentimentNeutral', 'SentimentPositive', 'Retweets 1',
+        'RetweetsDif 1', 'Probability 1', 'ProbabilityDif 1', 'Views 1', 'ViewsDif 1',
+        'FollowerAvg 1', 'FollowerAvgDif 1', 'TopicBucket 1', 'TopicBucket 2',
+        'TopicBucket 3', 'TopicBucket 4');
+colsTwoP = ('#followers', 'isDirect', 'isMention', 'hasExclamation', 'hasHashtag', 
+        'hasEmoticonNegative', 'hasEmoticonPositive', 'hasQuestion', 'hasURL', 
+        'SentimentNegative', 'SentimentNeutral', 'SentimentPositive', 'Retweets 1',
+        'Retweets 2', 'RetweetsDif 1', 'RetweetsDif 2', 'Probability 1', 
+        'Probability 2', 'ProbabilityDif 1', 'ProbabilityDif 2', 'Views 1', 
+        'Views 2', 'ViewsDif 1', 'ViewsDif 2', 'FollowerAvg 1', 'FollowerAvg 2',
+        'FollowerAvgDif 1', 'FollowerAvgDif 2', 'TopicBucket 1', 'TopicBucket 2',
+        'TopicBucket 3', 'TopicBucket 4');
+colsThreeP = ('#followers', 'isDirect', 'isMention', 'hasExclamation', 'hasHashtag', 
+        'hasEmoticonNegative', 'hasEmoticonPositive', 'hasQuestion', 'hasURL', 
+        'SentimentNegative', 'SentimentNeutral', 'SentimentPositive', 'Retweets 1',
+        'Retweets 2', 'Retweets 3', 'RetweetsDif 1', 'RetweetsDif 2', 'RetweetsDif 3', 
+        'Probability 1', 'Probability 2', 'Probability 3', 'ProbabilityDif 1', 
+        'ProbabilityDif 2', 'ProbabilityDif 3', 'Views 1', 'Views 2', 'Views 3', 
+        'ViewsDif 1', 'ViewsDif 2', 'ViewsDif 3', 'FollowerAvg 1', 'FollowerAvg 2', 
+        'FollowerAvg 3', 'FollowerAvgDif 1', 'FollowerAvgDif 2', 'FollowerAvgDif 3', 
+        'TopicBucket 1', 'TopicBucket 2', 'TopicBucket 3', 'TopicBucket 4');
 tweetsPerBucket = [0, 0, 0, 0]
 tweetsPerTopic = [{}, {}, {}, {}]
 
@@ -53,7 +76,7 @@ def get_sample(filePath, training, minimumPeriods=4):
     0:AuthorsFollowers, 1:isDirect, 2:isMention, 3:isExclamation, 
     4:hasHashtag, 5:hasNegativeEmoticon, 6:hasPositiveEmoticon, 
     7:isQuestion, 8:hasUrl, 9-11:Sentiment OHE, 12+: History data, 
-    -1 - -7: Topic ratios.
+    -1 - -4: Topic ratios.
     """
     sampleFile = open(filePath)
     X = []
@@ -159,7 +182,7 @@ def get_sample_eclat(name):
         X.append(x)
         
         for _ in range(8):
-                sampleFile.readline()
+            sampleFile.readline()
         line = sampleFile.readline()
     
     return X, Y
@@ -184,7 +207,7 @@ def split_groups(Y):
             Ysplit.append(3)
     return Ysplit
 
-def classify(X, Y, Xstring, Y2, method):
+def classify(X, Y, Xstring, Y2, method, periods):
     """Trains and tests a sample against a classifier.
     
     Two samples of tweets, one for training and one for testing, are run
@@ -213,6 +236,16 @@ def classify(X, Y, Xstring, Y2, method):
         print 'K Neighbors'
     clf.fit(X, Y)
     print 'Score: ' + str(clf.score(Xstring, Y2))
+    if method == 0:
+        print 'Importances: '
+        importances = clf.feature_importances_
+        for i in range(len(importances)):
+            if (periods == 1):
+                print "    " + colsOneP[i] + ": " + str(importances[i])
+            elif (periods == 2):
+                print "    " + colsTwoP[i] + ": " + str(importances[i])
+            else:
+                print "    " + colsThreeP[i] + ": " + str(importances[i])
     prediction = clf.predict(Xstring)
     bucketTotals = []
     for i in range(NUMBER_OF_RT_BUCKETS):
@@ -222,6 +255,7 @@ def classify(X, Y, Xstring, Y2, method):
     
     precision = []
     recall = []
+    fscore = []
     bucketDif = 0
     for i in range(len(bucketTotals)):
         if bucketTotals[i] == 0:
@@ -237,11 +271,15 @@ def classify(X, Y, Xstring, Y2, method):
             else:
                 precision.append(1)
             recall.append(truePositive / conditionPositive)
-            
+        if (precision[-1] + recall[-1] == 0):
+            fscore.append(0)
+        else:
+            fscore.append(2 * ((precision[-1] * recall[-1]) / (precision[-1] + recall[-1])));
     print 'Confusion matrix: '
     print cm
     print 'Precision: ' + str(precision)
     print 'Recall: ' + str(recall)
+    print 'F-score: ' + str(fscore);
     print
     
 def combine_files():
@@ -291,7 +329,7 @@ for periods in range(1, 4):
     print
     
     for i in range(4):
-        classify(scalerX.transform(X), Ys, scalerX.transform(X2), Y2s, i)
+        classify(scalerX.transform(X), Ys, scalerX.transform(X2), Y2s, i, periods)
         
     print
     print
